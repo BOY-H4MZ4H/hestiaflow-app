@@ -101,13 +101,16 @@ function signSession(userId) {
 }
 function verifySession(cookie) {
   if (!cookie) return null;
-  const parts = cookie.split(".");
+  try {
+    const parts = cookie.split(".");
   if (parts.length !== 3) return null;
   const [uid, exp, sig] = parts;
   const expect = crypto.createHmac("sha256", SESSION_SECRET).update(`${uid}.${exp}`).digest("hex");
+  if (sig.length !== expect.length) return null;
   if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expect))) return null;
   if (Date.now() > Number(exp)) return null;
   return Number(uid);
+  } catch { return null; }
 }
 function getSessionUser(req) {
   const raw = req.headers.cookie || "";
