@@ -158,6 +158,37 @@ function logHarvest(userId, providerId, message) {
 }
 
 
+
+// --- Anti-detection: free scraping proxy + rotating User-Agent (operator's own pattern) ---
+const UA_POOL = [
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15",
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+];
+const randUA = () => UA_POOL[Math.floor(Math.random() * UA_POOL.length)];
+
+let _proxyCache = { list: [], at: 0 };
+async function fetchProxyList() {
+  // Proxyscrape free proxy list (operator's own source). Cache 5 min.
+  if (_proxyCache.list.length && Date.now() - _proxyCache.at < 300000) return _proxyCache.list;
+  try {
+    const r = await fetch("https://api.proxyscrape.com/v3/free-proxy-list/get?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all", { signal: AbortSignal.timeout(15000) });
+    const txt = await r.text();
+    const list = txt.split(/\r?\n/).map((s) => s.trim()).filter((s) => /^\d+\.\d+\.\d+\.\d+:\d+$/.test(s));
+    if (list.length) { _proxyCache = { list, at: Date.now() }; return list; }
+  } catch {}
+  return _proxyCache.list;
+}
+function proxyDispatcher(proxyHostPort) {
+  try {
+    const { ProxyAgent } = require("undici");
+    return new ProxyAgent(`http://${proxyHostPort}`);
+  } catch { return undefined; }
+}
+
 // Luna-specific auto-register (provider brand "Luna").
 // Flow (no CAPTCHA, no email verification): POST /api/auth/sign-up/email
 // {name,email,password} -> session cookies -> POST /api/v1/keys -> {key}.
@@ -191,35 +222,45 @@ async function tryAutoRegisterLuna(provider) {
   try {
     const body = JSON.stringify({ name, email: tempEmail, password: tempPassword });
     const mkHeaders = (withXff) => {
-      const h = { "Content-Type": "application/json", "User-Agent": UA,
+      const h = { "Content-Type": "application/json", "User-Agent": randUA(),
         "Accept": "application/json, text/plain, */*", "Accept-Language": "en-US,en;q=0.9",
         "Referer": webBase + "/", "Origin": webBase,
         "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty" };
       if (withXff) h["X-Forwarded-For"] = randIp();
       return h;
     };
-    const doSignup = async (withXff) => {
-      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 20000);
+    const doSignup = async (withXff, proxy) => {
+      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 25000);
       try {
-        const res = await fetch(webBase + "/api/auth/sign-up/email", { method: "POST", headers: mkHeaders(withXff), body, signal: ctl.signal });
+        const opts = { method: "POST", headers: mkHeaders(withXff), body, signal: ctl.signal };
+        if (proxy) { const d = proxyDispatcher(proxy); if (d) opts.dispatcher = d; }
+        const res = await fetch(webBase + "/api/auth/sign-up/email", opts);
         const jj = await res.json().catch(() => null);
         return { res, jj };
       } finally { clearTimeout(t); }
     };
-    let attempt = await doSignup(true);
-    r = attempt.res; j = attempt.jj;
-    let flags = "";
-    if (!r.ok) {
-      const txt = JSON.stringify(j || "").toLowerCase();
-      for (const kw of ["cloudflare", "disposable", "captcha", "bot", "verify", "forbidden", "blocked"]) if (txt.includes(kw)) flags += kw + ",";
-    }
-    console.log(`[luna] signup status=${r.status} ok=${r.ok} hasToken=${!!(j && j.token)} emailDomain=${String(tempEmail).split("@")[1] || ""} flags=${flags} xff=1`);
-    if (!r.ok && r.status === 403) {
-      attempt = await doSignup(false);
+    // Try via scraping proxies first (anti-detection), then direct as last resort.
+    const proxies = await fetchProxyList();
+    const tried = [];
+    let attempt = null;
+    const maxProxyTries = Math.min(3, proxies.length);
+    for (let pi = 0; pi < maxProxyTries; pi++) {
+      const p = proxies[Math.floor(Math.random() * proxies.length)];
+      tried.push(p.split(":")[0]);
+      attempt = await doSignup(true, p);
       r = attempt.res; j = attempt.jj;
-      let flags2 = "";
-      if (!r.ok) { const txt2 = JSON.stringify(j || "").toLowerCase(); for (const kw of ["cloudflare", "disposable", "captcha", "bot", "verify", "forbidden", "blocked"]) if (txt2.includes(kw)) flags2 += kw + ","; }
-      console.log(`[luna] signup-retry status=${r.status} ok=${r.ok} hasToken=${!!(j && j.token)} flags=${flags2} xff=0`);
+      let flags = "";
+      if (!r.ok) { const txt = JSON.stringify(j || "").toLowerCase(); for (const kw of ["cloudflare", "disposable", "captcha", "bot", "verify", "forbidden", "blocked"]) if (txt.includes(kw)) flags += kw + ","; }
+      console.log(`[luna] signup status=${r.status} ok=${r.ok} hasToken=${!!(j && j.token)} via=proxy${pi + 1} flags=${flags}`);
+      if (r.ok) break;
+      if (r.status !== 403 && r.status !== 429) break;
+    }
+    if (!attempt || !r.ok) {
+      attempt = await doSignup(false, null);
+      r = attempt.res; j = attempt.jj;
+      let flags = "";
+      if (!r.ok) { const txt = JSON.stringify(j || "").toLowerCase(); for (const kw of ["cloudflare", "disposable", "captcha", "bot", "verify", "forbidden", "blocked"]) if (txt.includes(kw)) flags += kw + ","; }
+      console.log(`[luna] signup status=${r.status} ok=${r.ok} hasToken=${!!(j && j.token)} via=direct flags=${flags}`);
     }
     if (!r.ok) return null;
     const setCookie = r.headers.getSetCookie ? r.headers.getSetCookie() : [];
@@ -231,9 +272,11 @@ async function tryAutoRegisterLuna(provider) {
   // 4) Create API key (session cookies).
   try {
     const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 20000);
-    const r = await fetch(webBase + "/api/v1/keys", {
-      method: "POST", headers: { "X-Forwarded-For": randIp(), "User-Agent": UA, Cookie: cookie }, signal: ctl.signal,
-    });
+    const kProxies = await fetchProxyList();
+    const kProxy = kProxies.length ? kProxies[Math.floor(Math.random() * kProxies.length)] : null;
+    const kOpts = { method: "POST", headers: { "X-Forwarded-For": randIp(), "User-Agent": randUA(), Cookie: cookie, "Accept": "application/json, text/plain, */*", "Referer": webBase + "/", "Origin": webBase }, signal: ctl.signal };
+    if (kProxy) { const kd = proxyDispatcher(kProxy); if (kd) kOpts.dispatcher = kd; }
+    const r = await fetch(webBase + "/api/v1/keys", kOpts);
     clearTimeout(t);
     const j = await r.json().catch(() => null);
     const key = j && (j.key || j.api_key || j.apiKey);
