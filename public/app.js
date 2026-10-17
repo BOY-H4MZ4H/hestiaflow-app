@@ -116,7 +116,7 @@ function keyCard(k) {
     <span class="chip">${esc(k.providerBrand || "")}</span>
     <span class="chip">Credit: ${k.credit != null ? esc(k.credit) : "Tidak dinyatakan"}</span></div>
     <div style="text-align:right"><span class="muted">${esc(k.createdAt || "")}</span></div></div>
-    <div class="keybox" style="margin-top:10px"><div class="lbl">API key HestiaFlow</div>${esc(k.key)}</div>
+    <div class="keybox" style="margin-top:10px"><div class="lbl">API key HestiaFlow</div><div class="key-scroll">${esc(k.key)}</div></div>
     <div style="margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="copyText('${esc(k.key)}',this)">Salin Key</button>
     <button class="btn btn-ghost btn-sm" onclick="copyText('${esc(SETTINGS.baseUrl)}',this)">Salin Base URL</button></div>
     <p class="kv">Base URL: ${esc(SETTINGS.baseUrl)}</p>
