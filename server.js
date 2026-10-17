@@ -42,6 +42,8 @@ function seed() {
   const tierCount = db.prepare("SELECT COUNT(*) c FROM tiers").get().c;
   if (tierCount > 0) return;
   const insTier = db.prepare("INSERT INTO tiers (slug,name,audience_label,badge,max_models,sort_order) VALUES (?,?,?,?,?,?)");
+  // Migrasi: chip credit Luna dipendekin (tulisan panjang dihilangin) untuk DB yang sudah ada.
+  db.prepare("UPDATE providers SET credit_note=? WHERE brand_name=?").run("Always-free BETA", "Luna");
   // Migrasi: badge pendek (tulisan panjang dihilangin) untuk DB yang sudah ada.
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("TIER GRATIS", "gratis");
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("TIER PLUS", "plus");
@@ -53,7 +55,7 @@ function seed() {
   insProv.run(g, "Luna", "Cahaya lembut untuk langkah pertama.", 2,
     JSON.stringify(["qwen3-coder:30b", "llama3.2:3b"]),
     JSON.stringify({ "qwen3-coder:30b": "Muncul di website provider. Chat terverifikasi jalan.", "llama3.2:3b": "Terdaftar di /v1/models. Tes chat gagal (service_unavailable)." }),
-    "Always-free BETA — jumlah credit tidak dinyatakan.", null, 1);
+    "Always-free BETA", null, 1);
   insProv.run(p, "Aurora", "Cahaya pertama di gerbang kecerdasan.", 30,
     JSON.stringify(AURORA_MODELS), JSON.stringify({}),
     "200.000 token per akun terverifikasi.", 200000, 1);
