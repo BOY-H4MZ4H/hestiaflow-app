@@ -17,7 +17,7 @@ async function tg(method, body) {
   const r = await fetch(`${API}/${method}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
   return r.json().catch(() => ({}));
 }
-const GROUP_URL = "https://t.me/+MXrvI2tkFjg5ZmQ1";
+const GROUP_URL = "https://t.me/Hestia_flow";
 const WEB_URL = "https://hestiaflow-app-production.up.railway.app/";
 function mainKeyboard() {
   return { inline_keyboard: [[{ text: "💬 Gabung Grup Tele", url: GROUP_URL }], [{ text: "🌐 Buka Web HestiaFlow", url: WEB_URL }]] };
