@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 // ---------- seed ----------
 const AURORA_MODELS = ["claude-fable-5","claude-haiku-4-5-20251001","claude-opus-4-6","claude-opus-4.6","claude-opus-5","claude-sonnet-4-6","claude-sonnet-4.6","DeepSeek-V4-Flash","DeepSeek-V4-pro","doubao-seed-2-0-lite-260215","doubao-seedance-2-0-260128","gemini-2.5-flash","gemini-2.5-flash-image","gemini-2.5-flash-lite","gemini-3-flash-preview","gemini-3-pro-image","gemini-3-pro-image-preview","gemini-3.1-pro-preview","gemini-3.8-flash","GLM-5","gpt-5.4","gpt-5.6-luna","gpt-image-2","imagen-4.0-generate-001","Kimi-K2.5","kimi-k3","MiniMax-H3","MiniMax-M2.7","qwen3.5-plus","qwen3.6-plus"];
 function seed() {
+  // Migrasi: tambah provider Nova (Tier Pro). Model + credit user-facing (bukan secret).
+  // upstream_url Nova TIDAK ditulis di kode (anti-bocor) — di-set via env PROVIDER_NOVA_UPSTREAM_URL.
+  db.prepare("INSERT OR IGNORE INTO providers (tier_id,brand_name,tagline,model_count,model_list_json,credit_note,default_credit,sort_order) VALUES ((SELECT id FROM tiers WHERE slug='pro'),'Nova','Bintang baru yang bersinar terang.',49,'["claude-haiku-4.5", "claude-opus-4", "claude-opus-4.6", "claude-sonnet-4", "claude-sonnet-4-20250514", "claude-sonnet-4.6", "command-a", "command-r", "command-r-plus", "deepseek-chat", "deepseek-coder", "deepseek-reasoner", "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-2.5-flash", "gemini-2.5-flash-preview", "gemini-2.5-pro", "gemini-3-flash", "minimax-text-01", "codestral", "mistral-large", "mistral-small", "dall-e-2", "dall-e-3", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4.5-preview", "gpt-4o", "gpt-4o-mini", "gpt-5-mini", "gpt-5.1", "gpt-image-1", "o3", "o3-mini", "o4-mini", "text-embedding-3-large", "text-embedding-3-small", "text-embedding-ada-002", "qwen-max", "qwen-plus", "qwen-turbo", "qwen-vl-max", "qwen-vl-plus", "qwen3-max", "qwen3.5-plus", "grok-3", "grok-3-mini", "grok-4"]','283 ribu token per akun (saldo $0.1)',283000,1)").run();
   // Migrasi: tambah Tier Pro (kosong, belum ada provider) di bawah Plus, Premium geser ke bawah.
   db.prepare("UPDATE tiers SET sort_order=4 WHERE slug='premium'").run();
   db.prepare("INSERT OR IGNORE INTO tiers (slug,name,audience_label,badge,max_models,sort_order) VALUES ('pro','Pro','UNTUK PENGGUNA PRO','TIER PRO',NULL,3)").run();
@@ -329,6 +332,97 @@ async function tryAutoRegisterLuna(provider) {
   } catch (e) { console.log(`[luna] key exception ${e && e.message ? e.message : "unknown"}`); return null; }
 }
 
+// Nova (OpenToke) auto-register. Flow (from operator's open.py, no CAPTCHA, no email verification):
+// temp email (minuteinbox @minafter.com OR 1secmail random domain) -> POST /api/v1/auth/register
+// {email,password,name} -> 201 + token (JWT) -> GET /api/v1/credits/balance -> POST /api/v1/keys -> sk-ot-...
+// upstream_url for Nova is "https://opentoke.com/api" (with /api prefix) so the existing
+// stripV1 + "/v1/..." gateway logic lands on https://opentoke.com/api/v1/... correctly.
+// Returns { upstreamApiKey, upstreamBaseUrl, tempEmail, tempPassword, live } or null. Never logs credentials.
+async function tryAutoRegisterNova(provider) {
+  const apiBase = (provider.upstream_url || "").replace(/\/$/, "");
+  if (!apiBase) return null;
+  const randIp = () => Array.from({ length: 4 }, () => 1 + Math.floor(Math.random() * 254)).join(".");
+  const NAMES = ["hestia", "sayang", "cinta", "kasih", "rindu", "peluk", "manja", "mesra"];
+  // Temp email: rotate minuteinbox (@minafter.com, proven) <-> 1secmail (random domain).
+  const minuteinboxEmail = async () => {
+    try {
+      // Minuteinbox session: GET home (CSRF) -> POST new-email -> GET index (email). Direct, no proxy.
+      const h0 = { "User-Agent": randUA() };
+      const r0 = await fetch("https://www.minuteinbox.com/", { headers: h0, signal: AbortSignal.timeout(30000) });
+      const t0 = await r0.text().catch(() => "");
+      const m = t0.match(/(?:CSRF|csrf_token|csrf)\s*[:=]\s*["']([^"']+)["']/);
+      const csrf = m ? m[1] : "";
+      const cookies = (r0.headers.getSetCookie ? r0.headers.getSetCookie() : []).map((c) => c.split(";")[0]).join("; ");
+      const local = NAMES[Math.floor(Math.random() * NAMES.length)] + String(Date.now()).slice(-6);
+      const ajaxH = { ...h0, Referer: "https://www.minuteinbox.com/", Origin: "https://www.minuteinbox.com", "X-Requested-With": "XMLHttpRequest", Cookie: cookies, "Content-Type": "application/x-www-form-urlencoded" };
+      await new Promise((res) => setTimeout(res, 1000));
+      await fetch("https://www.minuteinbox.com/index/new-email/", { method: "POST", headers: ajaxH, body: "emailInput=" + encodeURIComponent(local) + "&format=json", signal: AbortSignal.timeout(30000) });
+      await new Promise((res) => setTimeout(res, 2000));
+      const r1 = await fetch("https://www.minuteinbox.com/index/index?csrf_token=" + encodeURIComponent(csrf), { headers: ajaxH, signal: AbortSignal.timeout(30000) });
+      const j1 = await r1.json().catch(() => null);
+      if (j1 && j1.email) return j1.email;
+    } catch {}
+    return null;
+  };
+  const oneseCmailEmail = async () => {
+    try {
+      const r = await fetch("https://www.1secmail.com/api/v1/?action=genRandomMailbox&count=1", { signal: AbortSignal.timeout(10000) });
+      const arr = await r.json().catch(() => null);
+      if (Array.isArray(arr) && arr[0]) return arr[0];
+    } catch {}
+    return null;
+  };
+  let tempEmail = null;
+  const useMinute = Math.random() < 0.5;
+  tempEmail = useMinute ? await minuteinboxEmail() : await oneseCmailEmail();
+  if (!tempEmail) tempEmail = useMinute ? await oneseCmailEmail() : await minuteinboxEmail();
+  if (!tempEmail) tempEmail = `hf_${randStr(10)}@1secmail.com`;
+  const name = NAMES[Math.floor(Math.random() * NAMES.length)].replace(/^./, (c) => c.toUpperCase()) + String(10 + Math.floor(Math.random() * 90));
+  const tempPassword = name + "12345"; // min 8 char, matches operator script format
+  const proxies = await fetchProxyList();
+  const proxy = proxies.length ? proxies[Math.floor(Math.random() * proxies.length)] : null;
+  const doFetch = async (url, opts, useProxy) => {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 30000);
+    try {
+      const o = { ...opts, signal: ctl.signal };
+      if (useProxy && proxy) { const d = proxyDispatcher(proxy); if (d) o.dispatcher = d; }
+      const r = await fetch(url, o);
+      const txt = await r.text().catch(() => "");
+      let j = null; try { j = JSON.parse(txt); } catch {}
+      return { ok: r.ok, status: r.status, json: j };
+    } catch { return null; } finally { clearTimeout(t); }
+  };
+  const H = { "User-Agent": randUA(), Origin: "https://opentoke.com", Referer: "https://opentoke.com/register", "Content-Type": "application/json", "X-Forwarded-For": randIp() };
+  // 1) Register (proxy first, direct fallback).
+  let reg = await doFetch(apiBase + "/v1/auth/register", { method: "POST", headers: H, body: JSON.stringify({ email: tempEmail, password: tempPassword, name }) }, true);
+  if (!reg || !reg.ok) reg = await doFetch(apiBase + "/v1/auth/register", { method: "POST", headers: H, body: JSON.stringify({ email: tempEmail, password: tempPassword, name }) }, false);
+  const token = reg && reg.ok && reg.json ? reg.json.token : null;
+  console.log(`[nova] register status=${reg ? reg.status : "null"} ok=${!!(reg && reg.ok)} hasToken=${!!token}`);
+  if (!token) return null;
+  // 2) Balance (log only, non-blocking).
+  try {
+    const b = await doFetch(apiBase + "/v1/credits/balance", { method: "GET", headers: { "User-Agent": randUA(), Authorization: `Bearer ${token}` } }, false);
+    const bal = b && b.ok && b.json ? b.json.balance_usd : "?";
+    console.log(`[nova] balance=${bal}`);
+  } catch {}
+  // 3) Create API key.
+  let kr = await doFetch(apiBase + "/v1/keys", { method: "POST", headers: { ...H, Authorization: `Bearer ${token}` }, body: JSON.stringify({ name: "key-1" }) }, true);
+  if (!kr || !kr.ok) kr = await doFetch(apiBase + "/v1/keys", { method: "POST", headers: { ...H, Authorization: `Bearer ${token}` }, body: JSON.stringify({ name: "key-1" }) }, false);
+  const key = kr && kr.ok && kr.json ? kr.json.key : null;
+  console.log(`[nova] key status=${kr ? kr.status : "null"} ok=${!!(kr && kr.ok)} hasKey=${!!key}`);
+  if (!key) return null;
+  // 4) Verify models (non-blocking, key was just created via provider API).
+  let verified = false;
+  try {
+    const vr = await fetch(apiBase + "/v1/models", { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(20000) });
+    const vj = await vr.json().catch(() => null);
+    const n = vj && Array.isArray(vj.data) ? vj.data.length : -1;
+    verified = !!vr.ok;
+    console.log(`[nova] verify models status=${vr.status} ok=${vr.ok} count=${n}`);
+  } catch (e) { console.log(`[nova] verify exception ${e && e.message ? e.message : "unknown"}`); }
+  return { upstreamApiKey: key, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: verified };
+}
+
 // Auto-register a real provider account (server-side, no admin config).
 // Tries generic signup/login/key endpoints against the provider's upstream_url
 // (operator-configured in DB). Returns { upstreamApiKey, upstreamBaseUrl } or null.
@@ -341,6 +435,11 @@ async function tryAutoRegister(provider, tempEmail, tempPassword) {
   if ((provider.brand_name || "").toLowerCase() === "luna") {
     const luna = await tryAutoRegisterLuna(provider);
     if (luna) return luna;
+    return null;
+  }
+  if ((provider.brand_name || "").toLowerCase() === "nova") {
+    const nova = await tryAutoRegisterNova(provider);
+    if (nova) return nova;
     return null;
   }
   const tryFetch = async (url, opts, ms) => {
