@@ -93,7 +93,7 @@ async function loadUser() {
     $("#userRoot").innerHTML = `
     <div class="section"><h2>Panen Akun</h2><p class="sub">Panen akun provider — tiap panen membuat 1 akun baru dengan email sementara yang berbeda-beda. Email & sandi tidak pernah ditampilkan. Pilih bebas 1–50 (maks 50).</p>
       <div class="card"><div class="row">
-        <div><label>Provider</label><select id="harvestProvider">${provOpts}</select></div>
+        <div><label>Provider</label><select id="harvestProvider" onchange="updateModelBox()">${provOpts}</select></div>
         <div><label>Jumlah akun (1–50)</label><div class="stepper">
           <button type="button" onclick="stepCount(-1)">−</button>
           <input id="harvestCount" type="number" min="1" max="50" value="1" oninput="clampCount(this)" />
@@ -104,7 +104,11 @@ async function loadUser() {
       <p class="kv" id="harvestProgText"></p>
       <div class="termbox" id="harvestProc" style="display:none"></div>
       <p class="kv" id="harvestSummary" style="display:flex;justify-content:space-between;align-items:center;gap:8px"></p>
-</div></div>`;
+</div></div>
+    <div class="section"><h2>Model</h2>
+      <div class="termbox" id="modelBox" style="max-height:160px;overflow-y:auto"><div class="term-line">Memuat model…</div></div>
+    </div>`;
+  updateModelBox();
   } catch (e) { $("#userRoot").innerHTML = `<p class="muted">Gagal memuat: ${esc(e.message)}</p>`; }
 }
 function keyBoxAll(keys) {
@@ -142,6 +146,16 @@ async function deleteMyKey(id, btn) {
 }
 function clampCount(el) { let v = parseInt(el.value, 10); if (isNaN(v)) v = 1; el.value = Math.max(1, Math.min(50, v)); }
 function stepCount(d) { const el = $("#harvestCount"); if (!el) return; el.value = Math.max(1, Math.min(50, (parseInt(el.value, 10) || 1) + d)); }
+async function updateModelBox() {
+  const box = $("#modelBox"); if (!box) return;
+  const sel = $("#harvestProvider"); if (!sel) return;
+  const pid = sel.value;
+  try {
+    const r = await api("/api/public/providers/" + pid + "/models");
+    const models = r.models || [];
+    box.innerHTML = `<div class="term-line">Jumlah model: ${r.modelCount != null ? r.modelCount : models.length}</div>` + (models.length ? models.map((m) => `<div class="term-line">${esc(m)}</div>`).join("") : `<div class="term-line">Model belum terdeteksi otomatis.</div>`);
+  } catch { box.innerHTML = `<div class="term-line">Gagal memuat model.</div>`; }
+}
 async function doUserHarvest() {
   const btn = $("#harvestBtn"); btn.disabled = true;
   const providerId = Number($("#harvestProvider").value), count = Math.max(1, Math.min(50, parseInt($("#harvestCount").value, 10) || 1));
