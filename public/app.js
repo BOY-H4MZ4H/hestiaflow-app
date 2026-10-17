@@ -7,7 +7,7 @@ let ME = null, TIERS = [], SETTINGS = { gatewayName: "HestiaFlow", baseUrl: "htt
 let adminTab = "user"; // 'user' | 'admin'
 let adminSection = "pengguna";
 let keyFilterUser = null;
-let adminCache = { users: [], keys: [], providers: [], workers: [], tiers: [], stats: {}, settings: {} };
+let adminCache = { users: [], keys: [], providers: [], workers: [], tiers: [], stats: {}, settings: {}, vouchers: [] };
 let deletePending = null;
 
 async function api(p, opts) {
@@ -83,7 +83,7 @@ function render() {
 }
 
 function voucherSection() { return `<div class="section"><h2>Voucher</h2><p class="sub">Masukan Code Vocher Yang Di Beri Admin</p><div class="row" style="gap:8px"><input id="voucherCode" placeholder="Kode Vocher" style="flex:1" /><button class="btn btn-plum" onclick="redeemVoucher()">Tukar</button></div><p id="voucherMsg" class="muted"></p></div>`; }
-async function redeemVoucher() { const inp = $("#voucherCode"); const msg = $("#voucherMsg"); const code = inp ? inp.value.trim() : ""; if (!code) { if (msg) msg.textContent = "Masukan dulu kode vocher-nya."; return; } try { const r = await api("/api/voucher/redeem", { method: "POST", body: JSON.stringify({ code }) }); if (msg) msg.textContent = r.message || "Vocher berhasil ditukar."; } catch (e) { if (msg) msg.textContent = e.message; } }
+async function redeemVoucher() { const inp = $("#voucherCode"); const msg = $("#voucherMsg"); const code = inp ? inp.value.trim() : ""; if (!code) { if (msg) msg.textContent = "Masukan dulu kode vocher-nya."; return; } try { const r = await api("/api/voucher/redeem", { method: "POST", body: JSON.stringify({ code }) }); if (msg) msg.textContent = r.message || "Vocher berhasil ditukar."; setTimeout(() => location.reload(), 1500); } catch (e) { if (msg) msg.textContent = e.message; } }
 async function loadUser() {
   try {
     $("#userRoot").innerHTML = `
@@ -240,9 +240,9 @@ async function loadAdmin() {
     const [stats, users, keys, providers, workers, tiers, settings, logs] = await Promise.all([
       api("/api/admin/stats"), api("/api/admin/users"), api("/api/admin/keys"),
       api("/api/admin/providers"), api("/api/admin/workers"), api("/api/admin/tiers"),
-      api("/api/admin/settings"), api("/api/admin/harvest-logs"),
+      api("/api/admin/settings"), api("/api/admin/harvest-logs"), api("/api/admin/vouchers"),
     ]);
-    adminCache = { stats: stats.stats, users: users.users, keys: keys.keys, providers: providers.providers, workers: workers.workers, tiers: tiers.tiers, settings: settings.settings, logs: logs.logs };
+    adminCache = { stats: stats.stats, users: users.users, keys: keys.keys, providers: providers.providers, workers: workers.workers, tiers: tiers.tiers, settings: settings.settings, logs: logs.logs, vouchers: vouchers.vouchers };
     renderAdmin();
   } catch (e) { const r = $("#adminRoot"); if (r) r.innerHTML = `<p class="muted">Gagal memuat admin: ${esc(e.message)}</p>`; }
 }
@@ -258,13 +258,14 @@ function renderAdmin() {
       <button class="${adminSection === "provider" ? "active" : ""}" onclick="switchSection('provider')">Provider</button>
       <button class="${adminSection === "worker" ? "active" : ""}" onclick="switchSection('worker')">Pool Worker</button>
       <button class="${adminSection === "pengaturan" ? "active" : ""}" onclick="switchSection('pengaturan')">Pengaturan</button>
+      <button class="${adminSection === "voucher" ? "active" : ""}" onclick="switchSection('voucher')">Voucher</button>
     </nav>
     <div id="adminSections"></div></div>`;
   renderAdminSections();
 }
 function renderAdminSections() {
   const el = $("#adminSections"); if (!el) return;
-  $$(".admin-nav button").forEach((b, i) => { const names = ["pengguna", "kunci", "provider", "worker", "pengaturan"]; b.classList.toggle("active", adminSection === names[i]); });
+  $$(".admin-nav button").forEach((b, i) => { const names = ["pengguna", "kunci", "provider", "worker", "pengaturan", "voucher"]; b.classList.toggle("active", adminSection === names[i]); });
   let html = "";
   if (adminSection === "pengguna") {
     html = `<div id="sec-pengguna"><h3>01 · Pengguna</h3><p class="muted">Ketuk kartu pengguna untuk melihat kunci miliknya.</p>
@@ -328,8 +329,12 @@ function renderAdminSections() {
       <div><label>Base URL (dibagikan ke pengguna)</label><input id="setBase" value="${esc(s.base_url || SETTINGS.baseUrl)}" /></div></div>
       <button class="btn btn-plum btn-sm" style="margin-top:10px" onclick="saveSettings()">Simpan Pengaturan</button></div></div>`;
   }
+  if (adminSection === "voucher") { const vs = adminCache.vouchers || []; html = `<div id="sec-voucher"><h3>06 · Voucher</h3><p class="muted">Buat kode vocher (16 karakter, 1x pakai) untuk upgrade paket user. Plus = 3 hari, Pro = 7 hari, Premium = 14 hari.</p><div class="row" style="gap:8px"><select id="newVoucherTier"><option value="plus">Plus (3 hari)</option><option value="pro">Pro (7 hari)</option><option value="premium">Premium (14 hari)</option></select><button class="btn btn-plum" onclick="createVoucher()">Buat Vocher</button></div><p id="newVoucherMsg" class="muted"></p><div class="grid" style="margin-top:12px">${vs.length ? vs.map((v) => `<div class="card"><b>${esc(v.code)}</b><br /><span class="chip">${esc(v.tierSlug)}</span> <span class="chip">${v.durationDays} hari</span> ${v.used ? `<span class="chip">Dipakai oleh ${esc(v.usedBy || "?")}</span>` : `<span class="chip">Belum dipakai</span>`}<br /><button class="btn btn-ghost btn-sm" onclick="copyVoucher('${esc(v.code)}')">Salin Kode</button> <button class="btn btn-danger btn-sm" onclick="deleteVoucher(${v.id})">Hapus</button></div>`).join("") : `<p class="muted">Belum ada vocher.</p>`}</div></div>`; }
   el.innerHTML = html;
 }
+async function createVoucher() { const tier = $("#newVoucherTier").value; const msg = $("#newVoucherMsg"); try { const r = await api("/api/admin/vouchers", { method: "POST", body: JSON.stringify({ tierSlug: tier }) }); if (msg) msg.textContent = `Vocher dibuat: ${r.voucher.code} (${r.voucher.tierSlug}, ${r.voucher.durationDays} hari). Salin & beri ke user.`; loadAdmin(); } catch (e) { if (msg) msg.textContent = "Gagal buat vocher: " + e.message; } }
+async function deleteVoucher(id) { if (!confirm("Hapus vocher ini?")) return; try { await api(`/api/admin/vouchers/${id}`, { method: "DELETE" }); loadAdmin(); } catch (e) { alert("Gagal hapus: " + e.message); } }
+function copyVoucher(code) { navigator.clipboard.writeText(code).then(() => alert("Kode tersalin: " + code)); }
 function viewUserKeys(id) {
   const u = adminCache.users.find((x) => x.id === id); if (!u) return;
   keyFilterUser = u.email; adminSection = "kunci"; renderAdminSections(); scrollToId("admin-keys");
