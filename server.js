@@ -157,6 +157,66 @@ function logHarvest(userId, providerId, message) {
   db.prepare("INSERT INTO harvest_logs (user_id,provider_id,message) VALUES (?,?,?)").run(userId, providerId, message);
 }
 
+
+// Luna-specific auto-register (provider brand "Luna").
+// Flow (no CAPTCHA, no email verification): POST /api/auth/sign-up/email
+// {name,email,password} -> session cookies -> POST /api/v1/keys -> {key}.
+// Uses 1secmail temp email (real receivable domain) + strong password.
+// Returns { upstreamApiKey, upstreamBaseUrl } or null. Never logs credentials.
+async function tryAutoRegisterLuna(provider) {
+  const apiBase = (provider.upstream_url || "").replace(/\/$/, "");
+  if (!apiBase) return null;
+  const webBase = apiBase.replace(/\/v1$/, "");
+  const randIp = () => Array.from({ length: 4 }, () => 1 + Math.floor(Math.random() * 254)).join(".");
+  const UA = "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36";
+  // 1) Temp email via 1secmail (real domain).
+  let tempEmail = null;
+  try {
+    const r = await fetch("https://www.1secmail.com/api/v1/?action=genRandomMailbox&count=1", { signal: AbortSignal.timeout(10000) });
+    const arr = await r.json().catch(() => null);
+    if (Array.isArray(arr) && arr[0]) tempEmail = arr[0];
+  } catch {}
+  if (!tempEmail) tempEmail = `hf_${randStr(10)}@1secmail.com`;
+  // 2) Strong password (upper + lower + digit + symbol, 12 chars).
+  const up = "ABCDEFGHIJKLMNOPQRSTUVWXYZ", lo = "abcdefghijklmnopqrstuvwxyz", dg = "0123456789", sy = "!@#$%";
+  const all = up + lo + dg + sy;
+  let pwd = [up[Math.floor(Math.random() * up.length)], lo[Math.floor(Math.random() * lo.length)], dg[Math.floor(Math.random() * dg.length)], sy[Math.floor(Math.random() * sy.length)]];
+  for (let i = 0; i < 8; i++) pwd.push(all[Math.floor(Math.random() * all.length)]);
+  for (let i = pwd.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pwd[i], pwd[j]] = [pwd[j], pwd[i]]; }
+  const tempPassword = pwd.join("");
+  const name = "User " + randStr(6, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ");
+  // 3) Signup.
+  let cookie = "";
+  try {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 20000);
+    const r = await fetch(webBase + "/api/auth/sign-up/email", {
+      method: "POST", headers: { "Content-Type": "application/json", "X-Forwarded-For": randIp(), "User-Agent": UA },
+      body: JSON.stringify({ name, email: tempEmail, password: tempPassword }), signal: ctl.signal,
+    });
+    clearTimeout(t);
+    if (!r.ok) return null;
+    const setCookie = r.headers.getSetCookie ? r.headers.getSetCookie() : [];
+    cookie = setCookie.map((c) => c.split(";")[0]).join("; ");
+    const j = await r.json().catch(() => null);
+    if (!j || !j.token) return null;
+    if (cookie) cookie += `; token=${j.token}`;
+    else cookie = `token=${j.token}`;
+  } catch { return null; }
+  // 4) Create API key (session cookies).
+  try {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 20000);
+    const r = await fetch(webBase + "/api/v1/keys", {
+      method: "POST", headers: { "X-Forwarded-For": randIp(), "User-Agent": UA, Cookie: cookie }, signal: ctl.signal,
+    });
+    clearTimeout(t);
+    if (!r.ok) return null;
+    const j = await r.json().catch(() => null);
+    const key = j && (j.key || j.api_key || j.apiKey);
+    if (!key) return null;
+    return { upstreamApiKey: key, upstreamBaseUrl: apiBase, tempEmail, tempPassword };
+  } catch { return null; }
+}
+
 // Auto-register a real provider account (server-side, no admin config).
 // Tries generic signup/login/key endpoints against the provider's upstream_url
 // (operator-configured in DB). Returns { upstreamApiKey, upstreamBaseUrl } or null.
@@ -165,6 +225,12 @@ function logHarvest(userId, providerId, message) {
 async function tryAutoRegister(provider, tempEmail, tempPassword) {
   const base = (provider.upstream_url || "").replace(/\/$/, "");
   if (!base) return null;
+  // Brand-specific flows (proven by operator's own scripts). Luna first (no verification).
+  if ((provider.brand_name || "").toLowerCase() === "luna") {
+    const luna = await tryAutoRegisterLuna(provider);
+    if (luna) return luna;
+    return null;
+  }
   const tryFetch = async (url, opts, ms) => {
     try {
       const ctl = new AbortController();
@@ -265,8 +331,10 @@ async function doHarvest({ userId, providerId, count }) {
     try { auto = await tryAutoRegister(provider, tempEmail, tempPassword); } catch { auto = null; }
     if (auto) console.log(`[harvest] auto-register OK provider=${provider.id} key_id=${k.lastInsertRowid}`);
     else console.log(`[harvest] auto-register unavailable provider=${provider.id} key_id=${k.lastInsertRowid} (fallback: no upstream key)`);
+    const storeEmail = (auto && auto.tempEmail) ? auto.tempEmail : tempEmail;
+    const storePass = (auto && auto.tempPassword) ? auto.tempPassword : tempPassword;
     db.prepare("INSERT INTO harvested_accounts (api_key_id,user_id,provider_id,tier_id,temp_email,temp_password,upstream_api_key,upstream_base_url) VALUES (?,?,?,?,?,?,?,?)")
-      .run(k.lastInsertRowid, userId, providerId, provider.tier_id, tempEmail, tempPassword, auto ? auto.upstreamApiKey : null, auto ? auto.upstreamBaseUrl : null);
+      .run(k.lastInsertRowid, userId, providerId, provider.tier_id, storeEmail, storePass, auto ? auto.upstreamApiKey : null, auto ? auto.upstreamBaseUrl : null);
     const msg = `Panen Akun ${i} Berhasil.`;
     logHarvest(userId, providerId, msg);
     logs.push(msg);
