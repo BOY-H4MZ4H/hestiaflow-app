@@ -126,7 +126,7 @@ async function deleteAllHarvestKeys(btn) {
   for (const k of (lastHarvestKeys || [])) { try { if (k.id) await api("/api/my-keys/" + k.id, { method: "DELETE" }); } catch {} }
   lastHarvestKeys = [];
   const proc = $("#harvestProc"); if (proc) proc.innerHTML = `<div class="term-line">Semua API key dari panen ini sudah dihapus.</div>`;
-  const sumEl = $("#harvestSummary"); if (sumEl) sumEl.innerHTML = "";
+  const sumEl = $("#harvestSummary"); if (sumEl) sumEl.innerHTML = `<span>Live : <b>0</b> &nbsp;·&nbsp; Mati : <b>0</b></span>`;
   btn.disabled = false; btn.textContent = "Hapus"; btn.dataset.armed = "";
 }
 async function deleteMyKey(id, btn) {
