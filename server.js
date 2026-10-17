@@ -292,10 +292,12 @@ async function tryAutoRegisterLuna(provider) {
     // Verify the harvested key against the provider (server-side, no exposure).
     // Non-blocking: key was just created via provider API (201), so it is valid;
     // verify only logs. (apiBase already ends with /v1 -> use apiBase + "/models".)
+    let verified = false;
     try {
       const vr = await fetch(apiBase + "/models", { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(20000) });
       const vj = await vr.json().catch(() => null);
       const n = vj && Array.isArray(vj.data) ? vj.data.length : -1;
+      verified = !!vr.ok;
       console.log(`[luna] verify models status=${vr.status} ok=${vr.ok} count=${n}`);
     } catch (e) { console.log(`[luna] verify exception ${e && e.message ? e.message : "unknown"}`); }
     // End-to-end chat test with the harvested key (server-side, no exposure).
@@ -311,7 +313,7 @@ async function tryAutoRegisterLuna(provider) {
       const errCode = cj && cj.error && cj.error.code ? String(cj.error.code) : "";
       console.log(`[luna] chat-test status=${cr.status} ok=${cr.ok} hasContent=${hasContent} err=${errCode}`);
     } catch (e) { console.log(`[luna] chat-test exception ${e && e.message ? e.message : "unknown"}`); }
-    return { upstreamApiKey: key, upstreamBaseUrl: apiBase, tempEmail, tempPassword };
+    return { upstreamApiKey: key, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: verified };
   } catch (e) { console.log(`[luna] key exception ${e && e.message ? e.message : "unknown"}`); return null; }
 }
 
@@ -436,7 +438,7 @@ async function doHarvest({ userId, providerId, count }) {
     const msg = `Panen Akun ${i} Berhasil.`;
     logHarvest(userId, providerId, msg);
     logs.push(msg);
-    keys.push({ id: k.lastInsertRowid, providerBrand: provider.brand_name, tierSlug: tier ? tier.slug : null, key: userId ? keyValue : undefined, keyPrefix, credit, models, modelSource: source, modelCount: provider.model_count });
+    keys.push({ id: k.lastInsertRowid, providerBrand: provider.brand_name, tierSlug: tier ? tier.slug : null, key: userId ? keyValue : undefined, keyPrefix, credit, models, modelSource: source, modelCount: provider.model_count, live: auto ? !!auto.live : false });
   }
   return { count, logs, keys, proxyTotal: _proxyCache.list.length };
 }
