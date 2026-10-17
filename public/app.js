@@ -50,7 +50,7 @@ function tierShowcase() {
   return `<div class="section"><h2>Pilihan Tier</h2><p class="sub">Tiap tier punya provider sendiri-sendiri — tidak digabung.</p>
   <div class="grid tiers">${TIERS.map((t) => `
     <div class="card tier ${t.slug === "premium" ? "premium" : ""}">
-      <span class="badge ${t.slug === "gratis" ? "gratis" : t.slug === "plus" ? "plus" : "premium"}">${esc(t.badge)}</span>
+      <span class="badge ${t.slug === "gratis" ? "gratis" : t.slug === "plus" ? "plus" : t.slug === "pro" ? "pro" : "premium"}">${esc(t.badge)}</span>
       ${(t.providers || []).map((p) => `
         <div class="brand"><div class="medal ${t.slug === "premium" ? "gold" : ""}">${esc(p.brand.slice(0, 1))}</div>
         <div><h3>${esc(p.brand)}</h3><p>${esc(p.tagline || "")}</p></div></div>
@@ -245,7 +245,7 @@ function renderAdminSections() {
   if (adminSection === "provider") {
     html = `<div id="sec-provider"><h3>Provider & Tier</h3>
       <div class="card"><h4>Kelola Tier</h4><div class="grid">${adminCache.tiers.map((t) => `
-        <div class="card"><span class="badge ${t.slug === "gratis" ? "gratis" : t.slug === "plus" ? "plus" : "premium"}">${esc(t.badge || t.name)}</span>
+        <div class="card"><span class="badge ${t.slug === "gratis" ? "gratis" : t.slug === "plus" ? "plus" : t.slug === "pro" ? "pro" : "premium"}">${esc(t.badge || t.name)}</span>
         <p class="kv">Slug: ${esc(t.slug)} · ${t.providerCount} provider${t.max_models != null ? ` · Maks ${t.max_models} model` : ""}</p></div>`).join("")}</div>
         <div class="row"><div><label>Nama tier baru</label><input id="newTierName" placeholder="mis. Ultra" /></div>
         <div><label>Label audiens</label><input id="newTierAud" placeholder="UNTUK PENGGUNA ULTRA" /></div>
@@ -253,7 +253,7 @@ function renderAdminSections() {
         <button class="btn btn-plum btn-sm" style="margin-top:10px" onclick="addTier()">Tambah Tier</button></div>
       ${(adminCache.tiers || []).map((t) => {
         const provs = adminCache.providers.filter((p) => p.tierId === t.id);
-        return `<div class="card" style="margin-top:14px"><span class="badge ${t.slug === "gratis" ? "gratis" : t.slug === "plus" ? "plus" : "premium"}">${esc(t.badge || t.name)}</span>
+        return `<div class="card" style="margin-top:14px"><span class="badge ${t.slug === "gratis" ? "gratis" : t.slug === "plus" ? "plus" : t.slug === "pro" ? "pro" : "premium"}">${esc(t.badge || t.name)}</span>
         <h4>Tier ${esc(t.name)}</h4>
         ${provs.map((p) => `<div style="border-top:1px solid var(--line);padding:10px 0">
           <b>${esc(p.brand)}</b> · ${p.modelCount} model · ${esc(p.creditNote || "")}
