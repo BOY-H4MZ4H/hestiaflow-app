@@ -195,7 +195,7 @@ function switchSnippet(tab) {
   const code = document.getElementById("snippetCode"); if (code) code.textContent = s.code;
 }
 function openOrderBot(slug) {
-  window.open("https://t.me/Hestia_gateway_bot?start=hestiaflow_" + encodeURIComponent(slug || "gratis"), "_blank");
+  window.open("https://t.me/hestiaflow_bot?start=hestiaflow_" + encodeURIComponent(slug || "gratis"), "_blank");
 }
 function copySnippet(btn) {
   const code = document.getElementById("snippetCode");
