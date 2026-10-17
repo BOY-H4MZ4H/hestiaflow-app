@@ -489,19 +489,23 @@ async function tryAutoRegisterAurora(provider) {
   };
   const guerrilla = async () => {
     try {
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const r = await fetch("https://api.guerrillamail.com/ajax.php?f=get_email_address&lang=en", { signal: AbortSignal.timeout(15000) });
+        const j = await r.json().catch(() => null);
+        if (j && j.email_addr && j.email_addr.endsWith("@sharklasers.com")) return { email: j.email_addr, sid: j.sid_token, kind: "guerrilla" };
+        if (j && j.sid_token && attempt === 0) {
+          const local = "hf" + randStr(10).toLowerCase();
+          const r2 = await fetch(`https://api.guerrillamail.com/ajax.php?f=set_email_user&email_user=${encodeURIComponent(local)}&domain=sharklasers.com&lang=en&sid_token=${encodeURIComponent(j.sid_token)}`, { signal: AbortSignal.timeout(15000) });
+          const j2 = await r2.json().catch(() => null);
+          if (j2 && j2.email_addr && j2.email_addr.endsWith("@sharklasers.com")) return { email: j2.email_addr, sid: j2.sid_token || j.sid_token, kind: "guerrilla" };
+        }
+      }
       const r = await fetch("https://api.guerrillamail.com/ajax.php?f=get_email_address&lang=en", { signal: AbortSignal.timeout(15000) });
       const j = await r.json().catch(() => null);
-      if (j && j.sid_token) {
-        const local = "hf" + randStr(10).toLowerCase();
-        const r2 = await fetch(`https://api.guerrillamail.com/ajax.php?f=set_email_user&email_user=${encodeURIComponent(local)}&domain=sharklasers.com&lang=en&sid_token=${encodeURIComponent(j.sid_token)}`, { signal: AbortSignal.timeout(15000) });
-        const j2 = await r2.json().catch(() => null);
-        if (j2 && j2.email_addr) return { email: j2.email_addr, sid: j2.sid_token || j.sid_token, kind: "guerrilla" };
-      }
       if (j && j.email_addr) return { email: j.email_addr, sid: j.sid_token, kind: "guerrilla" };
     } catch {}
     return null;
-  };
-  const guerrillaCode = async (inbox) => {
+  };  const guerrillaCode = async (inbox) => {
     for (let i = 0; i < 12; i++) {
       try {
         const r = await fetch(`https://api.guerrillamail.com/ajax.php?f=check_email&seq=0&sid_token=${encodeURIComponent(inbox.sid)}`, { signal: AbortSignal.timeout(15000) });
@@ -586,6 +590,12 @@ async function tryAutoRegisterAurora(provider) {
   return { upstreamApiKey: key, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: verified };
 }
 
+function mergeCookies(oldC, newC) {
+  const map = {};
+  for (const part of String(oldC || "").split(";")) { const [k, ...v] = part.trim().split("="); if (k) map[k] = v.join("="); }
+  for (const part of String(newC || "").split(";")) { const [k, ...v] = part.trim().split("="); if (k) map[k] = v.join("="); }
+  return Object.entries(map).map(([k, v]) => k + "=" + v).join("; ");
+}
 async function tryAutoRegisterStella(provider) {
   const apiBase = (provider.upstream_url || "").replace(/\/$/, "");
   if (!apiBase) return null;
@@ -664,18 +674,19 @@ async function tryAutoRegisterStella(provider) {
   console.log(`[stella] signup status=${rp ? rp.status : "null"} ok=${!!signupOk} disposable=${!!(rp && rp.text.includes("Disposable"))}`);
   console.log(`[stella] signup resp=${rp ? String(rp.text || "").replace(/\s+/g, " ").slice(0, 400) : "null"}`);
   if (!signupOk) return null;
-  const cookieHdr2 = rp.cookies || cookieHdr;
+  const cookieHdr2 = mergeCookies(cookieHdr, rp.cookies);
   const code = await miCode(inbox);
   console.log(`[stella] code found=${!!code}`);
   if (!code) return null;
   const vf = await doFetch(webBase + "/verify/", { method: "GET", headers: { "User-Agent": UA, Cookie: cookieHdr2 } }, false);
+  const cookieHdr2b = mergeCookies(cookieHdr2, vf.cookies);
   const vcsrf = vf && vf.text ? ((vf.text.match(/name="csrfmiddlewaretoken" value="([^"]+)"/) || [])[1]) : csrf;
   const vform = new URLSearchParams({ csrfmiddlewaretoken: vcsrf || csrf, code }).toString();
-  const vr = await doFetch(webBase + "/verify/", { method: "POST", headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded", Referer: webBase + "/verify/", Cookie: cookieHdr2 }, body: vform, redirect: "manual" }, false);
+  const vr = await doFetch(webBase + "/verify/", { method: "POST", headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded", Referer: webBase + "/verify/", Cookie: cookieHdr2b }, body: vform, redirect: "manual" }, false);
   const verifyOk = vr && vr.status === 302 && !String(vr.location || "").includes("/verify/");
   console.log(`[stella] verify status=${vr ? vr.status : "null"} ok=${!!verifyOk}`);
   if (!verifyOk) return null;
-  const cookieHdr3 = vr.cookies || cookieHdr2;
+  const cookieHdr3 = mergeCookies(cookieHdr2b, vr.cookies);
   const csrftoken = (cookieHdr3.match(/csrftoken=([^;]+)/) || [])[1] || "";
   const kr = await doFetch(webBase + "/api/v1/api-keys/", { method: "POST", headers: { "User-Agent": UA, "Content-Type": "application/json", "X-CSRFToken": csrftoken, Referer: webBase + "/account/", Cookie: cookieHdr3 }, body: JSON.stringify({ name: "script key" }) }, false);
   const key = kr && kr.ok && kr.json ? (kr.json.key || null) : null;
