@@ -16,7 +16,7 @@ header.top .spacer{flex:1}
 .btn-danger{background:var(--red);color:#fff}
 .btn-sm{padding:7px 13px;font-size:13px}
 .btn:disabled{opacity:.55;cursor:not-allowed}
-main{max-width:1080px;margin:0 auto;padding:24px 16px 80px}
+main{max-width:1080px;margin:0 auto;padding:24px 16px 16px}
 .hero{background:linear-gradient(135deg,var(--plum) 0%,#5b2a5e 55%,#7a4a2a 130%);color:#fff;border-radius:24px;padding:36px 28px;position:relative;overflow:hidden}
 .hero h1{margin:0 0 8px;font-size:34px;line-height:1.15}
 .hero p{margin:0 0 18px;opacity:.92;max-width:640px}
@@ -79,7 +79,7 @@ label{font-size:13px;font-weight:700;color:var(--plum);display:block;margin:10px
 .logbox{background:#241228;color:#f5eeda;border-radius:12px;padding:12px 14px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;max-height:220px;overflow:auto;white-space:pre-wrap}
 .logbox .ok{color:#8fe0a8}
 .muted{color:var(--muted);font-size:13px}
-footer{margin-top:48px;padding:18px;text-align:center;color:var(--muted);font-size:13px;border-top:1px solid var(--line)}
+footer{margin-top:12px;padding:18px;text-align:center;color:var(--muted);font-size:13px;border-top:1px solid var(--line)}
 footer img{width:30px;height:30px;border-radius:50%;object-fit:cover;border:1.5px solid var(--gold);vertical-align:middle;margin-right:6px}
 .banner-filter{padding:10px 14px;background:#f3eef7;border:1px solid #d9c6e0;border-radius:12px;font-size:13px;margin:10px 0}
 .progress{height:10px;background:var(--ivory2);border-radius:999px;overflow:hidden}
