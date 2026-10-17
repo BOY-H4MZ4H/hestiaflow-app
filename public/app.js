@@ -89,12 +89,8 @@ function render() {
 
 async function loadUser() {
   try {
-    const keys = await api("/api/my-keys");
-    const logs = await api("/api/harvest/logs");
     const provOpts = TIERS.flatMap((t) => (t.providers || []).map((p) => `<option value="${p.id}">${esc(t.name)} · ${esc(p.brand)} (${p.modelCount} model)</option>`)).join("");
     $("#userRoot").innerHTML = `
-    <div class="section"><h2>Kunci Saya</h2><p class="sub">API key HestiaFlow milikmu — Base URL HestiaFlow + Credit.</p>
-      <div id="keyList">${keys.keys.length ? keyBoxAll(keys.keys) + `<p class="kv">Base URL: ${esc(SETTINGS.baseUrl)} <button class="btn btn-ghost btn-sm" onclick="copyText('${esc(SETTINGS.baseUrl)}',this)">Salin Base URL</button></p>` : `<p class="muted">Belum ada kunci. Panen akun di bawah untuk mendapatkan API key.</p>`}</div></div>
     <div class="section"><h2>Panen Akun</h2><p class="sub">Panen akun provider — tiap panen membuat 1 akun baru dengan email sementara yang berbeda-beda. Email & sandi tidak pernah ditampilkan. Pilih bebas 1–50 (maks 50).</p>
       <div class="card"><div class="row">
         <div><label>Provider</label><select id="harvestProvider">${provOpts}</select></div>
@@ -127,13 +123,6 @@ async function deleteMyKey(id, btn) {
 }
 function clampCount(el) { let v = parseInt(el.value, 10); if (isNaN(v)) v = 1; el.value = Math.max(1, Math.min(50, v)); }
 function stepCount(d) { const el = $("#harvestCount"); if (!el) return; el.value = Math.max(1, Math.min(50, (parseInt(el.value, 10) || 1) + d)); }
-async function refreshKeyList() {
-  try {
-    const keys = await api("/api/my-keys");
-    const el = $("#keyList"); if (!el) return;
-    el.innerHTML = keys.keys.length ? keyBoxAll(keys.keys) + `<p class="kv">Base URL: ${esc(SETTINGS.baseUrl)} <button class="btn btn-ghost btn-sm" onclick="copyText('${esc(SETTINGS.baseUrl)}',this)">Salin Base URL</button></p>` : `<p class="muted">Belum ada kunci. Panen akun di bawah untuk mendapatkan API key.</p>`;
-  } catch {}
-}
 async function doUserHarvest() {
   const btn = $("#harvestBtn"); btn.disabled = true;
   const providerId = Number($("#harvestProvider").value), count = Math.max(1, Math.min(50, parseInt($("#harvestCount").value, 10) || 1));
@@ -154,7 +143,6 @@ async function doUserHarvest() {
     const deadN = (out.keys || []).length - liveN;
     const sumEl = $("#harvestSummary"); if (sumEl) sumEl.innerHTML = `Live : <b>${liveN}</b> &nbsp;·&nbsp; Mati : <b>${deadN}</b>`;
     btn.disabled = false;
-    refreshKeyList();
   } catch (e) {
     proc.innerHTML = `<div class="term-line term-err">Gagal: ${esc(e.message)}</div>`;
     btn.disabled = false;
