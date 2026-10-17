@@ -548,6 +548,17 @@ app.post("/api/harvest", requireAuth, async (req, res) => {
     res.json({ ok: true, ...out });
   } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
 });
+// Delete own harvested key (harvest result) so it is no longer stored.
+// Removes the HestiaFlow key + the stored harvested-account data (upstream key, temp creds).
+// User-scoped: only the owner can delete their own key.
+app.delete("/api/my-keys/:id", requireAuth, (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ ok: false, error: "invalid_id" });
+  db.prepare("DELETE FROM harvested_accounts WHERE api_key_id=?").run(id);
+  const out = db.prepare("DELETE FROM api_keys WHERE id=? AND user_id=?").run(id, req.user.id);
+  if (!out.changes) return res.status(404).json({ ok: false, error: "key_not_found" });
+  res.json({ ok: true, deleted: true });
+});
 app.get("/api/harvest/logs", requireAuth, (req, res) => {
   const rows = db.prepare("SELECT hl.*, p.brand_name AS brand FROM harvest_logs hl LEFT JOIN providers p ON p.id=hl.provider_id WHERE hl.user_id=? ORDER BY hl.created_at DESC LIMIT 100").all(req.user.id);
   res.json({ ok: true, logs: rows });
