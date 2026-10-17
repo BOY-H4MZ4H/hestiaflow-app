@@ -26,8 +26,7 @@ async function load() {
   try { const pub = await api("/api/public/tiers"); TIERS = pub.tiers || []; } catch {}
   try { const st = await api("/api/public/settings"); SETTINGS = st; } catch {}
   try { const pool = await api("/api/public/pool"); POOL = pool; } catch {}
-    const fb = $("#footBase"); if (fb) fb.textContent = SETTINGS.baseUrl || "https://api.hestia-gateway.id/v1";
-  } catch (e) { /* offline-ish */ }
+  const fb = $("#footBase"); if (fb) fb.textContent = SETTINGS.baseUrl || "https://api.hestia-gateway.id/v1";
   renderAuth();
   render();
 }
@@ -81,9 +80,18 @@ function render() {
   loadUser();
 }
 
-function voucherSection() { return `<div class="section" style="text-align:center"><h2>Voucher</h2><p class="sub">Masukan Code Vocher Yang Di Beri Admin</p>
-  <div style="display:flex;flex-direction:column;align-items:center;gap:10px"><input id="voucherCode" placeholder="Kode Vocher" style="text-align:center;max-width:320px;width:100%" /><button class="btn btn-plum" onclick="redeemVoucher()">Tukar</button></div><p id="voucherMsg" class="muted"></p></div>`; }
-async function redeemVoucher() { const inp = $("#voucherCode"); const msg = $("#voucherMsg"); const code = inp ? inp.value.trim() : ""; if (!code) { if (msg) msg.textContent = "Masukan dulu kode vocher-nya."; return; } try { const r = await api("/api/voucher/redeem", { method: "POST", body: JSON.stringify({ code }) }); if (msg) msg.textContent = r.message || "Vocher berhasil ditukar."; setTimeout(() => location.reload(), 1500); } catch (e) { if (msg) msg.textContent = e.message; } }
+function voucherSection() {
+  return `<div class="section" style="text-align:center"><h2>Voucher</h2><p class="sub">Masukan Code Vocher Yang Di Beri Admin</p>
+  <div style="display:flex;flex-direction:column;align-items:center;gap:10px"><input id="voucherCode" placeholder="Kode Vocher" style="text-align:center;max-width:320px;width:100%" /><button class="btn btn-plum" onclick="redeemVoucher()">Tukar</button></div>
+  <p id="voucherMsg" class="muted"></p></div>`;
+}
+async function redeemVoucher() {
+  const inp = $("#voucherCode"); const msg = $("#voucherMsg");
+  const code = inp ? inp.value.trim() : "";
+  if (!code) { if (msg) msg.textContent = "Masukan dulu kode vocher-nya."; return; }
+  try { const r = await api("/api/voucher/redeem", { method: "POST", body: JSON.stringify({ code }) }); if (msg) msg.textContent = r.message || "Vocher berhasil ditukar."; setTimeout(() => location.reload(), 1500); }
+  catch (e) { if (msg) msg.textContent = e.message; }
+}
 async function loadUser() {
   try {
     $("#userRoot").innerHTML = `
@@ -164,7 +172,17 @@ function clampUserCount(el) { let v = parseInt(el.value, 10); if (isNaN(v)) v = 
 function stepCount(d) { const el = $("#harvestCount"); if (!el) return; el.value = Math.max(1, Math.min(userHarvestLimit(), (parseInt(el.value, 10) || 1) + d)); }
 let selectedHarvestProviderId = null;
 const TIER_RANK = { gratis: 0, plus: 1, pro: 2, premium: 3 };
-function showTierLocked() { let m = $("#tierLockModal"); if (!m) { m = document.createElement("div"); m.id = "tierLockModal"; m.className = "tier-lock-modal"; m.innerHTML = `<div class="tier-lock-box"><p>Kamu tidak Bisa Memilih Menu ini Segera Upgrade Paket kamu</p><button class="btn btn-plum" onclick="closeTierLocked()">OK</button></div>`; m.addEventListener("click", (e) => { if (e.target === m) closeTierLocked(); }); document.body.appendChild(m); } m.style.display = "flex"; const pop = $("#harvestProviderSidebar"); if (pop) pop.style.display = "none"; }
+function showTierLocked() {
+  let m = $("#tierLockModal");
+  if (!m) {
+    m = document.createElement("div"); m.id = "tierLockModal"; m.className = "tier-lock-modal";
+    m.innerHTML = `<div class="tier-lock-box"><p>Kamu tidak Bisa Memilih Menu ini Segera Upgrade Paket kamu</p><button class="btn btn-plum" onclick="closeTierLocked()">OK</button></div>`;
+    m.addEventListener("click", (e) => { if (e.target === m) closeTierLocked(); });
+    document.body.appendChild(m);
+  }
+  m.style.display = "flex";
+  const pop = $("#harvestProviderSidebar"); if (pop) pop.style.display = "none";
+}
 function closeTierLocked() { const m = $("#tierLockModal"); if (m) m.style.display = "none"; }
 function renderHarvestSidebar() {
   const el = $("#harvestProviderSidebar"); if (!el) return;
@@ -329,10 +347,20 @@ function renderAdminSections() {
       <div><label>Base URL (dibagikan ke pengguna)</label><input id="setBase" value="${esc(s.base_url || SETTINGS.baseUrl)}" /></div></div>
       <button class="btn btn-plum btn-sm" style="margin-top:10px" onclick="saveSettings()">Simpan Pengaturan</button></div></div>`;
   }
-  if (adminSection === "voucher") { const vs = adminCache.vouchers || []; html = `<div id="sec-voucher"><h3>06 · Voucher</h3><p class="muted">Buat kode vocher (16 karakter, 1x pakai) untuk upgrade paket user. Plus = 3 hari, Pro = 7 hari, Premium = 14 hari.</p><div class="row" style="gap:8px"><select id="newVoucherTier"><option value="plus">Plus (3 hari)</option><option value="pro">Pro (7 hari)</option><option value="premium">Premium (14 hari)</option></select><button class="btn btn-plum" onclick="createVoucher()">Buat Vocher</button></div><p id="newVoucherMsg" class="muted"></p><div class="grid" style="margin-top:12px">${vs.length ? vs.map((v) => `<div class="card"><b>${esc(v.code)}</b><br /><span class="chip">${esc(v.tierSlug)}</span> <span class="chip">${v.durationDays} hari</span> ${v.used ? `<span class="chip">Dipakai oleh ${esc(v.usedBy || "?")}</span>` : `<span class="chip">Belum dipakai</span>`}<br /><button class="btn btn-ghost btn-sm" onclick="copyVoucher('${esc(v.code)}')">Salin Kode</button> <button class="btn btn-danger btn-sm" onclick="deleteVoucher(${v.id})">Hapus</button></div>`).join("") : `<p class="muted">Belum ada vocher.</p>`}</div></div>`; }
+  if (adminSection === "voucher") {
+    const vs = adminCache.vouchers || [];
+    html = `<div id="sec-voucher"><h3>06 · Voucher</h3><p class="muted">Buat kode vocher (16 karakter, 1x pakai) untuk upgrade paket user. Plus = 3 hari, Pro = 7 hari, Premium = 14 hari.</p>
+      <div class="row" style="gap:8px"><select id="newVoucherTier"><option value="plus">Plus (3 hari)</option><option value="pro">Pro (7 hari)</option><option value="premium">Premium (14 hari)</option></select><button class="btn btn-plum" onclick="createVoucher()">Buat Vocher</button></div>
+      <p id="newVoucherMsg" class="muted"></p>
+      <div class="grid" style="margin-top:12px">${vs.length ? vs.map((v) => `<div class="card"><b>${esc(v.code)}</b><br /><span class="chip">${esc(v.tierSlug)}</span> <span class="chip">${v.durationDays} hari</span> ${v.used ? `<span class="chip">Dipakai oleh ${esc(v.usedBy || "?")}</span>` : `<span class="chip">Belum dipakai</span>`}<br /><button class="btn btn-ghost btn-sm" onclick="copyVoucher('${esc(v.code)}')">Salin Kode</button> <button class="btn btn-danger btn-sm" onclick="deleteVoucher(${v.id})">Hapus</button></div>`).join("") : `<p class="muted">Belum ada vocher.</p>`}</div></div>`;
+  }
   el.innerHTML = html;
 }
-async function createVoucher() { const tier = $("#newVoucherTier").value; const msg = $("#newVoucherMsg"); try { const r = await api("/api/admin/vouchers", { method: "POST", body: JSON.stringify({ tierSlug: tier }) }); if (msg) msg.textContent = `Vocher dibuat: ${r.voucher.code} (${r.voucher.tierSlug}, ${r.voucher.durationDays} hari). Salin & beri ke user.`; loadAdmin(); } catch (e) { if (msg) msg.textContent = "Gagal buat vocher: " + e.message; } }
+async function createVoucher() {
+  const tier = $("#newVoucherTier").value; const msg = $("#newVoucherMsg");
+  try { const r = await api("/api/admin/vouchers", { method: "POST", body: JSON.stringify({ tierSlug: tier }) }); if (msg) msg.textContent = `Vocher dibuat: ${r.voucher.code} (${r.voucher.tierSlug}, ${r.voucher.durationDays} hari). Salin & beri ke user.`; loadAdmin(); }
+  catch (e) { if (msg) msg.textContent = "Gagal buat vocher: " + e.message; }
+}
 async function deleteVoucher(id) { if (!confirm("Hapus vocher ini?")) return; try { await api(`/api/admin/vouchers/${id}`, { method: "DELETE" }); loadAdmin(); } catch (e) { alert("Gagal hapus: " + e.message); } }
 function copyVoucher(code) { navigator.clipboard.writeText(code).then(() => alert("Kode tersalin: " + code)); }
 function viewUserKeys(id) {
