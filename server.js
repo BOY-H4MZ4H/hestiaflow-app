@@ -489,29 +489,32 @@ async function tryAutoRegisterAurora(provider) {
   };
   const guerrilla = async () => {
     try {
-      for (let attempt = 0; attempt < 6; attempt++) {
+      let last = null;
+      for (let attempt = 0; attempt < 20; attempt++) {
         const r = await fetch("https://api.guerrillamail.com/ajax.php?f=get_email_address&lang=en", { signal: AbortSignal.timeout(15000) });
         const j = await r.json().catch(() => null);
-        if (j && j.email_addr && j.email_addr.endsWith("@sharklasers.com")) return { email: j.email_addr, sid: j.sid_token, kind: "guerrilla" };
-        if (j && j.sid_token && attempt === 0) {
-          const local = "hf" + randStr(10).toLowerCase();
-          const r2 = await fetch(`https://api.guerrillamail.com/ajax.php?f=set_email_user&email_user=${encodeURIComponent(local)}&domain=sharklasers.com&lang=en&sid_token=${encodeURIComponent(j.sid_token)}`, { signal: AbortSignal.timeout(15000) });
-          const j2 = await r2.json().catch(() => null);
-          if (j2 && j2.email_addr && j2.email_addr.endsWith("@sharklasers.com")) return { email: j2.email_addr, sid: j2.sid_token || j.sid_token, kind: "guerrilla" };
+        if (j && j.email_addr) {
+          last = { email: j.email_addr, sid: j.sid_token, kind: "guerrilla" };
+          if (j.email_addr.endsWith("@sharklasers.com")) return last;
         }
+        await new Promise((res) => setTimeout(res, 1000));
       }
-      const r = await fetch("https://api.guerrillamail.com/ajax.php?f=get_email_address&lang=en", { signal: AbortSignal.timeout(15000) });
-      const j = await r.json().catch(() => null);
-      if (j && j.email_addr) return { email: j.email_addr, sid: j.sid_token, kind: "guerrilla" };
+      return last;
     } catch {}
     return null;
-  };  const guerrillaCode = async (inbox) => {
+  };
+  const guerrillaCode = async (inbox) => {
+    const seen = new Set();
     for (let i = 0; i < 12; i++) {
       try {
         const r = await fetch(`https://api.guerrillamail.com/ajax.php?f=check_email&seq=0&sid_token=${encodeURIComponent(inbox.sid)}`, { signal: AbortSignal.timeout(15000) });
         const j = await r.json().catch(() => null);
         const list = j && j.list ? j.list : [];
         for (const m of list) {
+          if (seen.has(m.mail_id)) continue;
+          seen.add(m.mail_id);
+          const subj = String(m.mail_subject || "") + " " + String(m.mail_from || "");
+          if (!/(tokit|verif|code)/i.test(subj)) continue;
           const fr = await fetch(`https://api.guerrillamail.com/ajax.php?f=fetch_email&email_id=${m.mail_id}&sid_token=${encodeURIComponent(inbox.sid)}`, { signal: AbortSignal.timeout(15000) });
           const fj = await fr.json().catch(() => null);
           const body = (fj && (fj.mail_body || "")) + " " + (fj && fj.mail_subject || "");
@@ -519,7 +522,7 @@ async function tryAutoRegisterAurora(provider) {
           if (code) return code;
         }
       } catch {}
-      await new Promise((res) => setTimeout(res, 10000));
+      await new Promise((res) => setTimeout(res, 15000));
     }
     return null;
   };
