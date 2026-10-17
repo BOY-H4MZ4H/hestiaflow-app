@@ -52,7 +52,7 @@ function tierShowcase() {
     <div class="card tier ${t.slug === "premium" ? "premium" : ""}">
       <span class="badge ${t.slug === "gratis" ? "gratis" : t.slug === "plus" ? "plus" : "premium"}">${esc(t.badge)}</span>
       <h3 style="color:var(--plum);margin:10px 0 4px">Tier ${esc(t.name)}</h3>
-      <p class="kv">${esc(t.audienceLabel)}${t.maxModels != null ? ` · Maks ${t.maxModels} model` : ""}</p>
+      <p class="kv tier-aud">${esc(t.audienceLabel)}${t.maxModels != null ? ` · Maks ${t.maxModels} model` : ""}</p>
       ${(t.providers || []).map((p) => `
         <div class="brand"><div class="medal ${t.slug === "premium" ? "gold" : ""}">${esc(p.brand.slice(0, 1))}</div>
         <div><h3>${esc(p.brand)}</h3><p>${esc(p.tagline || "")}</p></div></div>
