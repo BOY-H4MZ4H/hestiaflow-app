@@ -113,7 +113,7 @@ function keyBoxAll(keys) {
 let lastHarvestKeys = [];
 function copyAllHarvestKeys(btn) {
   const liveKeys = (lastHarvestKeys || []).filter((k) => k.live).map((k) => k.key).filter(Boolean);
-  if (!liveKeys.length) { const t = btn.textContent; btn.textContent = "Tidak ada API key"; setTimeout(() => { btn.textContent = t; }, 2000); return; }
+  if (!liveKeys.length) { const t = btn.textContent; btn.textContent = "Tidak ada"; setTimeout(() => { btn.textContent = t; }, 2000); return; }
   copyText(liveKeys.join("\n"), btn);
 }
 async function deleteAllHarvestKeys(btn) {
@@ -161,7 +161,7 @@ async function doUserHarvest() {
     const liveN = (out.keys || []).filter((k) => k.live).length;
     const deadN = (out.keys || []).length - liveN;
     lastHarvestKeys = out.keys || [];
-    const sumEl = $("#harvestSummary"); if (sumEl) sumEl.innerHTML = `<span>Live : <b>${liveN}</b> &nbsp;·&nbsp; Mati : <b>${deadN}</b></span> <button class="btn btn-danger btn-sm" onclick="deleteAllHarvestKeys(this)">Hapus</button> <button class="btn btn-ghost btn-sm" onclick="copyAllHarvestKeys(this)">Salin Seluruh Api Key</button>`;
+    const sumEl = $("#harvestSummary"); if (sumEl) sumEl.innerHTML = `<span>Live : <b>${liveN}</b> &nbsp;·&nbsp; Mati : <b>${deadN}</b></span> <span style="white-space:nowrap"><button class="btn btn-ghost btn-sm" onclick="copyAllHarvestKeys(this)">Salin</button> <button class="btn btn-danger btn-sm" onclick="deleteAllHarvestKeys(this)">Hapus</button></span>`;
     btn.disabled = false;
   } catch (e) {
     proc.innerHTML = `<div class="term-line term-err">Gagal: ${esc(e.message)}</div>`;
