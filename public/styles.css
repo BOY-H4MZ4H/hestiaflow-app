@@ -83,3 +83,6 @@ footer img{width:30px;height:30px;border-radius:50%;object-fit:cover;border:1.5p
 .term-err{color:#f87171}
 .cute-spin{display:inline-block;width:13px;height:13px;border:2px solid rgba(74,222,128,.25);border-top-color:#4ade80;border-radius:50%;animation:cuteSpin .7s linear infinite;vertical-align:-2px;margin-right:6px}
 @keyframes cuteSpin{to{transform:rotate(360deg)}}
+
+.term-live{color:#4ade80;font-weight:700}
+.term-dead{color:#f87171;font-weight:700}
