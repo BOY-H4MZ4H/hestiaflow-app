@@ -102,7 +102,7 @@ async function loadUser() {
     <div class="section"><h2>Model</h2>
       <div class="termbox" id="modelBox" style="max-height:160px;overflow-y:auto"><div class="term-line">Memuat model…</div></div>
     </div>
-    <div class="section"><h2>Contoh Curl Chat</h2><p class="sub">Salin contoh ini, ganti API_KEY_KAMU dengan API key hasil panenmu.</p>
+    <div class="section"><h2>Contoh Curl Chat</h2>
       <div class="termbox" style="overflow:auto"><pre id="curlExample" style="margin:0;white-space:pre">curl https://hestiaflow-app-production.up.railway.app/v1/chat/completions \
   -H "Authorization: Bearer API_KEY_KAMU" \
   -H "Content-Type: application/json" \
