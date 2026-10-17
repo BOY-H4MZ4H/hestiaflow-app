@@ -665,6 +665,7 @@ app.post("/api/my-keys", requireAuth, async (req, res) => {
     res.json({ ok: true, ...out });
   } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
 });
+app.post("/api/voucher/redeem", requireAuth, (req, res) => { res.status(400).json({ ok: false, error: "Sistem voucher segera hadir." }); });
 app.post("/api/harvest", requireAuth, async (req, res) => {
   const count = Number(req.body.count);
   const provider = db.prepare("SELECT * FROM providers WHERE id=?").get(req.body.providerId);
