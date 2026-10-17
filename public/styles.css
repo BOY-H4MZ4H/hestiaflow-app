@@ -85,4 +85,5 @@ footer img{width:30px;height:30px;border-radius:50%;object-fit:cover;border:1.5p
 @keyframes cuteSpin{to{transform:rotate(360deg)}}
 
 .term-live{color:var(--gold-soft);font-weight:700}
+.term-keyval{color:var(--gold-soft);font-weight:700}
 .term-dead{color:#d9a8d9;font-weight:700}
