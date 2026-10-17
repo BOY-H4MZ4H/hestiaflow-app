@@ -474,6 +474,7 @@ async function tryAutoRegisterAurora(provider) {
         const r = await fetch("https://api.mail.tm/messages?page=1", { headers: { Authorization: "Bearer " + inbox.token }, signal: AbortSignal.timeout(15000) });
         const j = await r.json().catch(() => null);
         const msgs = j && j["hydra:member"] ? j["hydra:member"] : [];
+        if (i === 0) console.log(`[aurora] mailtm inbox msgs=${msgs.length} subjects=${msgs.map((m) => m.subject || "").slice(0, 3).join(" | ")}`);
         for (const m of msgs) {
           const mr = await fetch("https://api.mail.tm/messages/" + m.id, { headers: { Authorization: "Bearer " + inbox.token }, signal: AbortSignal.timeout(15000) });
           const mj = await mr.json().catch(() => null);
@@ -534,6 +535,7 @@ async function tryAutoRegisterAurora(provider) {
   let vr = await doFetch(webBase + "/api/verification?email=" + encodeURIComponent(tempEmail), { method: "GET", headers: H }, true);
   if (!vr || !vr.ok) vr = await doFetch(webBase + "/api/verification?email=" + encodeURIComponent(tempEmail), { method: "GET", headers: H }, false);
   console.log(`[aurora] verification status=${vr ? vr.status : "null"} ok=${!!(vr && vr.ok)}`);
+  console.log(`[aurora] verification resp=${vr ? String(vr.text || "").slice(0, 200) : "null"}`);
   const code = inbox.kind === "mailtm" ? await mailtmCode(inbox) : await guerrillaCode(inbox);
   console.log(`[aurora] code found=${!!code}`);
   if (!code) return null;
@@ -653,6 +655,7 @@ async function tryAutoRegisterStella(provider) {
   const rp = await doFetch(webBase + "/signup/", { method: "POST", headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded", Referer: webBase + "/signup/", Cookie: cookieHdr }, body: form }, false);
   const signupOk = rp && (rp.url.includes("/verify/") || rp.text.includes('name="code"') || rp.text.includes("/verify/"));
   console.log(`[stella] signup status=${rp ? rp.status : "null"} ok=${!!signupOk} disposable=${!!(rp && rp.text.includes("Disposable"))}`);
+  console.log(`[stella] signup resp=${rp ? String(rp.text || "").replace(/\s+/g, " ").slice(0, 400) : "null"}`);
   if (!signupOk) return null;
   const cookieHdr2 = rp.cookies || cookieHdr;
   const code = await miCode(inbox);
