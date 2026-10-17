@@ -60,6 +60,17 @@ function seed() {
   db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('base_url',?)").run(GATEWAY_BASE_URL);
 }
 seed();
+// Sync provider upstream URLs from env vars (PROVIDER_<BRAND>_UPSTREAM_URL).
+// Operator config only — values live in Railway env, never in public code.
+for (const [k, v] of Object.entries(process.env)) {
+  if (!k.startsWith("PROVIDER_") || !k.endsWith("_UPSTREAM_URL")) continue;
+  const raw = k.slice("PROVIDER_".length, -"_UPSTREAM_URL".length);
+  if (!raw) continue;
+  const brand = raw.charAt(0) + raw.slice(1).toLowerCase();
+  const url = String(v || "").trim();
+  if (!url) continue;
+  try { db.prepare("UPDATE providers SET upstream_url=? WHERE brand_name=?").run(url, brand); } catch {}
+}
 
 // ---------- helpers ----------
 const app = express();
