@@ -117,6 +117,10 @@ function randStr(n, chars) {
   let s = ""; for (let i = 0; i < n; i++) s += c[Math.floor(Math.random() * c.length)];
   return s;
 }
+// Normalize an upstream base: strip trailing "/" and a trailing "/v1" so callers can
+// safely append "/v1/..." without ever producing "/v1/v1/...". Works whether the
+// stored upstream URL already includes /v1 or not.
+function stripV1(u) { return String(u || "").replace(/\/$/, "").replace(/\/v1$/, ""); }
 // Public-safe provider view: brand + tier + models ONLY. NEVER upstream identity.
 function publicProvider(p) {
   const tier = db.prepare("SELECT slug,name,audience_label,badge FROM tiers WHERE id=?").get(p.tier_id);
@@ -141,7 +145,7 @@ async function fetchProviderModels(p) {
   // Only if operator configured a real worker key + upstream URL. Server-side only.
   if (!p.upstream_url || !p.upstream_api_key) return null;
   try {
-    const url = p.upstream_url.replace(/\/$/, "") + "/v1/models";
+    const url = stripV1(p.upstream_url) + "/v1/models";
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 6000);
     const r = await fetch(url, { headers: { Authorization: `Bearer ${p.upstream_api_key}` }, signal: ctl.signal });
@@ -754,7 +758,7 @@ app.post("/v1/chat/completions", async (req, res) => {
   try {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 120000);
-    const r = await fetch(upstreamUrl.replace(/\/$/, "") + "/v1/chat/completions", {
+    const r = await fetch(stripV1(upstreamUrl) + "/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${upstreamKey}` },
       body: JSON.stringify(req.body),
