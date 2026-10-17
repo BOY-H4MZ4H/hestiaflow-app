@@ -93,7 +93,7 @@ async function handleUpdate(db, u) {
       const days = (TIER_PRICE[o.tier_slug] || {}).days || 3;
       const code = genVoucherCode();
       db.prepare("INSERT INTO vouchers (code, tier_slug, duration_days, used, created_at) VALUES (?, ?, ?, 0, ?)").run(code, o.tier_slug, days, new Date().toISOString());
-      db.prepare("UPDATE bot_orders SET status='approved', voucher_code=?, decided_at=? WHERE id=?").run(code, o.tier_slug, new Date().toISOString(), orderId);
+      db.prepare("UPDATE bot_orders SET status='approved', voucher_code=?, decided_at=? WHERE id=?").run(code, new Date().toISOString(), orderId);
       await sendMsg(chatId, `Pesanan #${orderId} disetujui. Vocher dikirim ke user.`);
       await sendMsg(o.tg_user_id, `Assalamualaikum! Kabar baik, pembayaranmu sudah disetujui! 🎉\n\nKode Vocher kamu: <code>${code}</code>\nPaket: <b>${TIER_NAME[o.tier_slug]}</b> (${(TIER_PRICE[o.tier_slug] || {}).dur || ""})\n\nRedeem kode ini di web HestiaFlow (section Voucher).`);
     } else {
