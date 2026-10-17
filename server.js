@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 // ---------- seed ----------
 const AURORA_MODELS = ["claude-fable-5","claude-haiku-4-5-20251001","claude-opus-4-6","claude-opus-4.6","claude-opus-5","claude-sonnet-4-6","claude-sonnet-4.6","DeepSeek-V4-Flash","DeepSeek-V4-pro","doubao-seed-2-0-lite-260215","doubao-seedance-2-0-260128","gemini-2.5-flash","gemini-2.5-flash-image","gemini-2.5-flash-lite","gemini-3-flash-preview","gemini-3-pro-image","gemini-3-pro-image-preview","gemini-3.1-pro-preview","gemini-3.8-flash","GLM-5","gpt-5.4","gpt-5.6-luna","gpt-image-2","imagen-4.0-generate-001","Kimi-K2.5","kimi-k3","MiniMax-H3","MiniMax-M2.7","qwen3.5-plus","qwen3.6-plus"];
 function seed() {
+  try { const cols = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name); if (!cols.includes("tier_slug")) db.prepare("ALTER TABLE users ADD COLUMN tier_slug TEXT DEFAULT 'gratis'").run(); db.prepare("UPDATE users SET tier_slug='gratis' WHERE tier_slug IS NULL OR tier_slug=''").run(); } catch {}
   // Migrasi: tambah provider Nova (Tier Pro). Model + credit user-facing (bukan secret).
   // upstream_url Nova TIDAK ditulis di kode (anti-bocor) — di-set via env PROVIDER_NOVA_UPSTREAM_URL.
   // Hapus provider Nova dobel (kalau migrasi lama sempat jalan 2x) — sisakan 1 (id terkecil).
@@ -113,7 +114,7 @@ function getSessionUser(req) {
   const m = raw.match(/(?:^|;\s*)hestia_session=([^;]+)/);
   const uid = verifySession(m ? decodeURIComponent(m[1]) : null);
   if (!uid) return null;
-  return db.prepare("SELECT id,email,name,avatar,is_admin,created_at FROM users WHERE id=?").get(uid) || null;
+  return db.prepare("SELECT id,email,name,avatar,is_admin,created_at,COALESCE(tier_slug,'gratis') AS tier_slug FROM users WHERE id=?").get(uid) || null;
 }
 function requireAuth(req, res, next) {
   const u = getSessionUser(req);
@@ -518,6 +519,7 @@ async function tryAutoRegister(provider, tempEmail, tempPassword) {
 }
 
 const TIER_HARVEST_LIMIT = { gratis: 2, plus: 10, pro: 20, premium: 50 };
+const TIER_RANK = { gratis: 0, plus: 1, pro: 2, premium: 3 };
 async function doHarvest({ userId, providerId, count }) {
   const provider = db.prepare("SELECT * FROM providers WHERE id=?").get(providerId);
   if (!provider) throw new Error("provider_not_found");
@@ -701,8 +703,9 @@ app.get("/api/admin/stats", requireAdmin, (req, res) => {
 });
 app.get("/api/admin/users", requireAdmin, (req, res) => {
   const rows = db.prepare("SELECT u.*, (SELECT COUNT(*) FROM api_keys k WHERE k.user_id=u.id AND k.status='active') AS key_count FROM users u ORDER BY u.created_at DESC").all();
-  res.json({ ok: true, users: rows.map((u) => ({ id: u.id, email: u.email, name: u.name, avatar: u.avatar, isAdmin: !!u.is_admin, keyCount: u.key_count, createdAt: u.created_at })) });
+  res.json({ ok: true, users: rows.map((u) => ({ id: u.id, email: u.email, name: u.name, avatar: u.avatar, isAdmin: !!u.is_admin, keyCount: u.key_count, createdAt: u.created_at, tierSlug: u.tier_slug || "gratis" })) });
 });
+app.post("/api/admin/users/:id/tier", requireAdmin, (req, res) => { const slug = String(req.body.tierSlug || "").toLowerCase(); if (!["gratis", "plus", "pro", "premium"].includes(slug)) return res.status(400).json({ ok: false, error: "invalid_tier" }); const out = db.prepare("UPDATE users SET tier_slug=? WHERE id=?").run(slug, req.params.id); if (!out.changes) return res.status(404).json({ ok: false, error: "user_not_found" }); res.json({ ok: true, tierSlug: slug }); });
 app.delete("/api/admin/users/:id", requireAdmin, (req, res) => {
   if (Number(req.params.id) === req.user.id) return res.status(400).json({ ok: false, error: "cannot_delete_self" });
   db.prepare("DELETE FROM api_keys WHERE user_id=?").run(req.params.id);
