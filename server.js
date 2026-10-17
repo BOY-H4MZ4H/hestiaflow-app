@@ -289,6 +289,14 @@ async function tryAutoRegisterLuna(provider) {
     console.log(`[luna] key status=${r.status} ok=${r.ok} hasKey=${!!key} hasCookie=${!!cookie}`);
     if (!r.ok) return null;
     if (!key) return null;
+    // Verify the harvested key actually works against the provider (server-side, no exposure).
+    try {
+      const vr = await fetch(apiBase + "/v1/models", { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(20000) });
+      const vj = await vr.json().catch(() => null);
+      const n = vj && Array.isArray(vj.data) ? vj.data.length : -1;
+      console.log(`[luna] verify models status=${vr.status} ok=${vr.ok} count=${n}`);
+      if (!vr.ok) return null;
+    } catch (e) { console.log(`[luna] verify exception ${e && e.message ? e.message : "unknown"}`); return null; }
     return { upstreamApiKey: key, upstreamBaseUrl: apiBase, tempEmail, tempPassword };
   } catch (e) { console.log(`[luna] key exception ${e && e.message ? e.message : "unknown"}`); return null; }
 }
