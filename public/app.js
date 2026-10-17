@@ -112,8 +112,13 @@ async function loadUser() {
     <div class="section"><h2>Model</h2>
       <div class="termbox" id="modelBox" style="max-height:160px;overflow-y:auto"><div class="term-line">Memuat model…</div></div>
     </div>
-    <div class="section"><h2>Curl Chat</h2>
-      <div class="termbox" style="overflow:auto"><pre id="curlExample" style="margin:0;white-space:pre">curl https://hestiaflow-app-production.up.railway.app/v1/chat/completions \
+    <div class="section"><h2>Curl Chat</h2><p class="sub">Pilih client untuk lihat & salin contoh API yang siap jalan.</p>
+      <div class="snippet-tabs">
+        <button class="snippet-tab active" data-tab="curl" onclick="switchSnippet('curl')">cURL</button>
+        <button class="snippet-tab" data-tab="python" onclick="switchSnippet('python')">Python</button>
+        <button class="snippet-tab" data-tab="node" onclick="switchSnippet('node')">Node.js</button>
+      </div>
+      <div class="termbox" style="overflow:auto"><div class="termbox-head"><span class="termbox-dots">● ● ●</span><span id="snippetLabel">CURL (TERMINAL / BASH)</span><button class="btn btn-ghost btn-sm" onclick="copySnippet(this)">Copy snippet</button></div><pre id="snippetCode" style="margin:0;white-space:pre">curl https://hestiaflow-app-production.up.railway.app/v1/chat/completions \
   -H "Authorization: Bearer API_KEY_KAMU" \
   -H "Content-Type: application/json" \
   -d '{
@@ -121,7 +126,11 @@ async function loadUser() {
     "messages": [{"role": "user", "content": "Halo!"}],
     "stream": false
   }'</pre></div>
-      <div style="margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="copyCurlExample(this)">Salin</button></div>
+      <h3 style="margin-top:16px">ENDPOINTS</h3>
+      <div class="endpoint-list">
+        <div class="endpoint-row"><span class="endpoint-method post">POST</span><span class="endpoint-path">/v1/chat/completions</span><span class="endpoint-desc">Chat completions</span><button class="btn btn-ghost btn-sm" onclick="copyEndpoint('https://hestiaflow-app-production.up.railway.app/v1/chat/completions', this)">Copy</button></div>
+        <div class="endpoint-row"><span class="endpoint-method get">GET</span><span class="endpoint-path">/v1/models</span><span class="endpoint-desc">List models</span><button class="btn btn-ghost btn-sm" onclick="copyEndpoint('https://hestiaflow-app-production.up.railway.app/v1/models', this)">Copy</button></div>
+      </div>
     </div>`;
   renderHarvestSidebar();
   updateModelBox();
@@ -130,9 +139,60 @@ async function loadUser() {
 function keyBoxAll(keys) {
   return `<div class="keybox" style="margin-bottom:12px"><div class="lbl">API key HestiaFlow</div><div class="key-list-scroll">${keys.map((k) => `<div class="key-row"><span class="key-row-tag">${esc(k.tierSlug || "")} · ${esc(k.providerBrand || "")} · Credit: ${k.credit != null ? esc(k.credit) : "Tidak dinyatakan"}</span><span class="key-row-val">${esc(k.key)}</span><div style="display:flex;gap:6px;margin-top:4px"><button class="btn btn-ghost btn-sm" onclick="copyText('${esc(k.key)}',this)">Salin Key</button><button class="btn btn-ghost btn-sm" style="color:#b91c1c" onclick="deleteMyKey(${k.id},this)">Hapus</button></div></div>`).join("")}</div></div>`;
 }
-function copyCurlExample(btn) {
-  const el = document.getElementById("curlExample");
-  if (el) copyText(el.textContent, btn);
+const SNIPPETS = {
+  curl: { label: "CURL (TERMINAL / BASH)", code: `curl https://hestiaflow-app-production.up.railway.app/v1/chat/completions \
+  -H "Authorization: Bearer API_KEY_KAMU" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen3-coder:30b",
+    "messages": [{"role": "user", "content": "Halo!"}],
+    "stream": false
+  }'` },
+  python: { label: "PYTHON (OPENAI SDK)", code: `from openai import OpenAI
+
+client = OpenAI(
+    api_key="API_KEY_KAMU",
+    base_url="https://hestiaflow-app-production.up.railway.app/v1",
+)
+
+response = client.chat.completions.create(
+    model="qwen3-coder:30b",
+    messages=[
+        {"role": "user", "content": "Halo!"}
+    ],
+)
+
+print(response.choices[0].message.content)` },
+  node: { label: "JAVASCRIPT (NPM OPENAI)", code: `import OpenAI from "openai";
+
+const client = new OpenAI({
+  apiKey: "API_KEY_KAMU",
+  baseURL: "https://hestiaflow-app-production.up.railway.app/v1",
+});
+
+const response = await client.chat.completions.create({
+  model: "qwen3-coder:30b",
+  messages: [
+    { role: "user", content: "Halo!" }
+  ],
+});
+
+console.log(response.choices[0].message.content);` },
+};
+let activeSnippet = "curl";
+function switchSnippet(tab) {
+  activeSnippet = tab;
+  document.querySelectorAll(".snippet-tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+  const s = SNIPPETS[tab]; if (!s) return;
+  const label = document.getElementById("snippetLabel"); if (label) label.textContent = s.label;
+  const code = document.getElementById("snippetCode"); if (code) code.textContent = s.code;
+}
+function copySnippet(btn) {
+  const code = document.getElementById("snippetCode");
+  if (code) navigator.clipboard.writeText(code.textContent).then(() => { if (btn) { const o = btn.textContent; btn.textContent = "Tersalin!"; setTimeout(() => btn.textContent = o, 1200); } });
+}
+function copyEndpoint(url, btn) {
+  navigator.clipboard.writeText(url).then(() => { if (btn) { const o = btn.textContent; btn.textContent = "Tersalin!"; setTimeout(() => btn.textContent = o, 1200); } });
 }
 let lastHarvestKeys = [];
 function copyAllHarvestKeys(btn) {
