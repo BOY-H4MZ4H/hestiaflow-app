@@ -37,7 +37,7 @@ main{max-width:1080px;margin:0 auto;padding:24px 16px 80px}
 .badge.premium{background:linear-gradient(135deg,var(--gold),var(--gold2));color:#2a1a00}
 /* Tier sidebar (Panen provider picker): plum + gold + ivory, elegan, singkat. */
 .tier-sidebar{display:flex;flex-direction:column;gap:8px}
-.tier-side-opt{padding:10px 14px;border:1px solid var(--line);border-radius:12px;background:var(--ivory);color:var(--plum);font-weight:600;cursor:pointer}
+.tier-side-opt{padding:10px 14px;border:1px solid var(--line);border-radius:12px;background:var(--ivory);color:var(--plum);font-weight:600;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tier-side-opt.sel{background:var(--plum);color:var(--gold-soft);border-color:var(--gold)}
 .badge.pro{background:var(--plum);color:var(--gold2);border:1px solid var(--gold)}
 .brand{display:flex;align-items:center;gap:12px;margin:12px 0 6px}
