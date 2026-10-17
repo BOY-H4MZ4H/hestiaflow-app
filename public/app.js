@@ -107,6 +107,7 @@ async function loadUser() {
       <div class="progress" style="margin-top:14px"><div id="harvestProg"></div></div>
       <p class="kv" id="harvestProgText"></p>
       <div class="termbox" id="harvestProc" style="display:none"></div>
+      <p class="kv" id="harvestSummary"></p>
       <p class="kv">Slot hasil panen berstatus siap; kredensialnya dilengkapi lewat Pool Worker oleh operator.</p></div></div>`;
   } catch (e) { $("#userRoot").innerHTML = `<p class="muted">Gagal memuat: ${esc(e.message)}</p>`; }
 }
@@ -145,9 +146,13 @@ async function doUserHarvest() {
     let html = `<div class="term-line">Total Proxy OK: ${out.proxyTotal != null ? out.proxyTotal : 0}</div>`;
     (out.keys || []).forEach((k, i) => {
       const st = k.live ? `<span class="term-live">Live</span>` : `<span class="term-dead">Mati</span>`;
-      html += `<div class="term-line term-key"><div>${i + 1} -${st}-</div><div>Api key : ${esc(k.key || "")}</div><div>Token/Credit : ${k.credit != null ? esc(k.credit) : "Tidak dinyatakan"}</div></div>`;
+      if (k.live) html += `<div class="term-line term-key"><div>${i + 1} -${st}-</div><div>Api key : ${esc(k.key || "")}</div><div>Token/Credit : ${k.credit != null ? esc(k.credit) : "Tidak dinyatakan"}</div></div>`;
+      else html += `<div class="term-line term-key"><div>${i + 1} -${st}-</div><div>Tidak dapat Di pakai</div></div>`;
     });
     proc.innerHTML = html;
+    const liveN = (out.keys || []).filter((k) => k.live).length;
+    const deadN = (out.keys || []).length - liveN;
+    const sumEl = $("#harvestSummary"); if (sumEl) sumEl.innerHTML = `Live : <b>${liveN}</b> &nbsp;·&nbsp; Mati : <b>${deadN}</b>`;
     btn.disabled = false;
     refreshKeyList();
   } catch (e) {
