@@ -161,14 +161,19 @@ function updateHarvestLimitUI() { const lim = userHarvestLimit(); const lbl = $(
 function clampUserCount(el) { let v = parseInt(el.value, 10); if (isNaN(v)) v = 1; el.value = Math.max(1, Math.min(userHarvestLimit(), v)); }
 function stepCount(d) { const el = $("#harvestCount"); if (!el) return; el.value = Math.max(1, Math.min(userHarvestLimit(), (parseInt(el.value, 10) || 1) + d)); }
 let selectedHarvestProviderId = null;
+const TIER_RANK = { gratis: 0, plus: 1, pro: 2, premium: 3 };
+function showTierLocked() { let m = $("#tierLockModal"); if (!m) { m = document.createElement("div"); m.id = "tierLockModal"; m.className = "tier-lock-modal"; m.innerHTML = `<div class="tier-lock-box"><p>Kamu tidak Bisa Memilih Menu ini Segera Upgrade Paket kamu</p><button class="btn btn-plum" onclick="closeTierLocked()">OK</button></div>`; m.addEventListener("click", (e) => { if (e.target === m) closeTierLocked(); }); document.body.appendChild(m); } m.style.display = "flex"; const pop = $("#harvestProviderSidebar"); if (pop) pop.style.display = "none"; }
+function closeTierLocked() { const m = $("#tierLockModal"); if (m) m.style.display = "none"; }
 function renderHarvestSidebar() {
   const el = $("#harvestProviderSidebar"); if (!el) return;
   const short = { gratis: "Gratis", plus: "Plus", pro: "Pro", premium: "Prem" };
   const items = [];
   TIERS.forEach((t) => (t.providers || []).forEach((p) => items.push({ tier: t, p })));
   if (!items.length) { el.innerHTML = `<p class="muted">Belum ada provider.</p>`; return; }
-  if (!selectedHarvestProviderId || !items.some((x) => x.p.id === selectedHarvestProviderId)) selectedHarvestProviderId = items[0].p.id;
-  el.innerHTML = items.map((x) => `<div class="tier-side-opt${x.p.id === selectedHarvestProviderId ? " sel" : ""}" data-pid="${x.p.id}" onclick="selectHarvestProvider(${x.p.id})">${esc(short[x.tier.slug] || x.tier.name)} • ${x.p.modelCount} Model</div>`).join("");
+  const myRank = TIER_RANK[(ME && ME.tier_slug) || "gratis"] ?? 0;
+  const selItem = items.find((x) => x.p.id === selectedHarvestProviderId);
+  if (!selectedHarvestProviderId || !selItem || (TIER_RANK[selItem.tier.slug] ?? 0) > myRank) selectedHarvestProviderId = (items.find((x) => (TIER_RANK[x.tier.slug] ?? 0) <= myRank) || items[0]).p.id;
+  el.innerHTML = items.map((x) => { const locked = (TIER_RANK[x.tier.slug] ?? 0) > myRank; return `<div class="tier-side-opt${x.p.id === selectedHarvestProviderId ? " sel" : ""}${locked ? " locked" : ""}" data-pid="${x.p.id}" onclick="${locked ? "showTierLocked()" : `selectHarvestProvider(${x.p.id})`}">${locked ? "🔒 " : ""}${esc(short[x.tier.slug] || x.tier.name)} • ${x.p.modelCount} Model</div>`; }).join("");
   const cur = items.find((x) => x.p.id === selectedHarvestProviderId);
   const lbl = $("#tierPickerLabel"); if (lbl && cur) lbl.textContent = `${short[cur.tier.slug] || cur.tier.name} • ${cur.p.modelCount} Model`;
 }
@@ -265,6 +270,7 @@ function renderAdminSections() {
       <div class="card usercard" role="button" tabindex="0" onclick="viewUserKeys(${u.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();viewUserKeys(${u.id})}">
         <div style="display:flex;gap:10px;align-items:center">${u.avatar ? `<img src="${esc(u.avatar)}" style="width:40px;height:40px;border-radius:50%" />` : `<div style="width:40px;height:40px;border-radius:50%;background:var(--plum);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800">${esc((u.name || u.email || "?").slice(0, 1).toUpperCase())}</div>`}
         <div><b>${esc(u.name || "(tanpa nama)")}</b><br /><span class="muted">${esc(u.email)}</span><br /><span class="chip">${u.keyCount} kunci</span>${u.isAdmin ? `<span class="chip">Admin</span>` : ""}</div></div>
+        <div style="margin-top:8px" onclick="event.stopPropagation()"><label style="font-size:12px">Paket: </label><select onchange="setUserTier(${u.id}, this.value)" onclick="event.stopPropagation()"><option value="gratis" ${u.tierSlug === "gratis" ? "selected" : ""}>Gratis</option><option value="plus" ${u.tierSlug === "plus" ? "selected" : ""}>Plus</option><option value="pro" ${u.tierSlug === "pro" ? "selected" : ""}>Pro</option><option value="premium" ${u.tierSlug === "premium" ? "selected" : ""}>Premium</option></select></div>
         <div style="margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();viewUserKeys(${u.id})">Lihat Kunci</button>
         <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();askDeleteUser(${u.id},'${esc(u.email)}')">Hapus Akun</button></div>
         <div class="hint">Ketuk kartu untuk melihat kunci</div></div>`).join("") : `<p class="muted">Belum ada pengguna terdaftar.</p>`}</div></div>`;
@@ -327,6 +333,7 @@ function viewUserKeys(id) {
   keyFilterUser = u.email; adminSection = "kunci"; renderAdminSections(); scrollToId("admin-keys");
 }
 function clearKeyFilter() { keyFilterUser = null; renderAdminSections(); }
+async function setUserTier(id, slug) { try { await api(`/api/admin/users/${id}/tier`, { method: "POST", body: JSON.stringify({ tierSlug: slug }) }); } catch (e) { alert("Gagal set paket: " + e.message); } }
 function askDeleteUser(id, email) {
   if (deletePending === id) {
     deletePending = null;
