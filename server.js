@@ -576,16 +576,12 @@ async function tryAutoRegisterAurora(provider) {
     return null;
   };
   const guerrilla = async () => {
-    // Guerrillamail: inbox nerima email dari SEMUA domain-nya (local part sama).
-    // Jadi kirim verifikasi ke <local>@sharklasers.com (yang diterima Tokit),
-    // polling tetap lewat API guerrillamail (sid_token).
+    // Pakai alamat ASLI dari API (jangan rewrite domain — email ke domain lain
+    // tidak sampai ke inbox ini). Proxy hidup yang bikin Tokit kirim kode-nya.
     try {
       const r = await fetch("https://api.guerrillamail.com/ajax.php?f=get_email_address&lang=en", { signal: AbortSignal.timeout(15000) });
       const j = await r.json().catch(() => null);
-      if (j && j.email_addr) {
-        const local = j.email_addr.split("@")[0];
-        return { email: local + "@sharklasers.com", sid: j.sid_token, kind: "guerrilla" };
-      }
+      if (j && j.email_addr) return { email: j.email_addr, sid: j.sid_token, kind: "guerrilla" };
     } catch {}
     return null;
   };
