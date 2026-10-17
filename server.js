@@ -491,6 +491,12 @@ async function tryAutoRegisterAurora(provider) {
     try {
       const r = await fetch("https://api.guerrillamail.com/ajax.php?f=get_email_address&lang=en", { signal: AbortSignal.timeout(15000) });
       const j = await r.json().catch(() => null);
+      if (j && j.sid_token) {
+        const local = "hf" + randStr(10).toLowerCase();
+        const r2 = await fetch(`https://api.guerrillamail.com/ajax.php?f=set_email_user&email_user=${encodeURIComponent(local)}&domain=sharklasers.com&lang=en&sid_token=${encodeURIComponent(j.sid_token)}`, { signal: AbortSignal.timeout(15000) });
+        const j2 = await r2.json().catch(() => null);
+        if (j2 && j2.email_addr) return { email: j2.email_addr, sid: j.sid_token, kind: "guerrilla" };
+      }
       if (j && j.email_addr) return { email: j.email_addr, sid: j.sid_token, kind: "guerrilla" };
     } catch {}
     return null;
@@ -513,8 +519,8 @@ async function tryAutoRegisterAurora(provider) {
     }
     return null;
   };
-  let inbox = await mailtm();
-  if (!inbox) inbox = await guerrilla();
+  let inbox = await guerrilla();
+  if (!inbox) inbox = await mailtm();
   if (!inbox) return null;
   const tempEmail = inbox.email;
   const tempPassword = inbox.password || (randStr(10) + "12345");
@@ -640,7 +646,7 @@ async function tryAutoRegisterStella(provider) {
       const txt = await r.text().catch(() => "");
       let j = null; try { j = JSON.parse(txt); } catch {}
       const ck = (r.headers.getSetCookie ? r.headers.getSetCookie() : []).map((c) => c.split(";")[0]).join("; ");
-      return { ok: r.ok, status: r.status, json: j, text: txt, url: r.url, cookies: ck };
+      return { ok: r.ok, status: r.status, json: j, text: txt, url: r.url, cookies: ck, location: r.headers.get("location") || "" };
     } catch { return null; } finally { clearTimeout(t); }
   };
   const UA = randUA();
@@ -652,8 +658,8 @@ async function tryAutoRegisterStella(provider) {
   if (!csrf || !stok) return null;
   const cookieHdr = sg.cookies || "";
   const form = new URLSearchParams({ csrfmiddlewaretoken: csrf, lang: "en", signup_token: stok, email: tempEmail, password: tempPassword }).toString();
-  const rp = await doFetch(webBase + "/signup/", { method: "POST", headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded", Referer: webBase + "/signup/", Cookie: cookieHdr }, body: form }, false);
-  const signupOk = rp && (rp.url.includes("/verify/") || rp.text.includes('name="code"') || rp.text.includes("/verify/"));
+  const rp = await doFetch(webBase + "/signup/", { method: "POST", headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded", Referer: webBase + "/signup/", Cookie: cookieHdr }, body: form, redirect: "manual" }, false);
+  const signupOk = rp && rp.status === 302 && String(rp.location || "").includes("/verify/");
   console.log(`[stella] signup status=${rp ? rp.status : "null"} ok=${!!signupOk} disposable=${!!(rp && rp.text.includes("Disposable"))}`);
   console.log(`[stella] signup resp=${rp ? String(rp.text || "").replace(/\s+/g, " ").slice(0, 400) : "null"}`);
   if (!signupOk) return null;
@@ -664,8 +670,8 @@ async function tryAutoRegisterStella(provider) {
   const vf = await doFetch(webBase + "/verify/", { method: "GET", headers: { "User-Agent": UA, Cookie: cookieHdr2 } }, false);
   const vcsrf = vf && vf.text ? ((vf.text.match(/name="csrfmiddlewaretoken" value="([^"]+)"/) || [])[1]) : csrf;
   const vform = new URLSearchParams({ csrfmiddlewaretoken: vcsrf || csrf, code }).toString();
-  const vr = await doFetch(webBase + "/verify/", { method: "POST", headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded", Referer: webBase + "/verify/", Cookie: cookieHdr2 }, body: vform }, false);
-  const verifyOk = vr && (!vr.url.includes("/verify/") && !vr.text.includes('name="code"'));
+  const vr = await doFetch(webBase + "/verify/", { method: "POST", headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded", Referer: webBase + "/verify/", Cookie: cookieHdr2 }, body: vform, redirect: "manual" }, false);
+  const verifyOk = vr && vr.status === 302 && !String(vr.location || "").includes("/verify/");
   console.log(`[stella] verify status=${vr ? vr.status : "null"} ok=${!!verifyOk}`);
   if (!verifyOk) return null;
   const cookieHdr3 = vr.cookies || cookieHdr2;
