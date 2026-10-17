@@ -122,3 +122,5 @@ footer img{width:30px;height:30px;border-radius:50%;object-fit:cover;border:1.5p
 .endpoint-method.get{background:var(--gold);color:var(--plum)}
 .endpoint-path{font-family:monospace;font-weight:700;color:var(--plum)}
 .endpoint-desc{color:var(--muted);font-size:12px;margin-left:auto}
+
+.copy-snippet-btn{padding:4px 10px;border:1px solid var(--gold);border-radius:999px;background:transparent;color:var(--gold-soft);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
