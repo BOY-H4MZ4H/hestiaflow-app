@@ -20,8 +20,12 @@ async function tg(method, body) {
 const GROUP_URL = "https://t.me/Hestia_flow";
 const WEB_URL = "https://hestiaflow-app-production.up.railway.app/";
 function mainKeyboard() {
-  return { inline_keyboard: [[{ text: "💬 Gabung Grup Tele", url: GROUP_URL }], [{ text: "🌐 Buka Web HestiaFlow", url: WEB_URL }]] };
+  return { inline_keyboard: [[{ text: "🎫 Pesan Vocher", callback_data: "order_menu" }], [{ text: "💬 Gabung Grup Tele", url: GROUP_URL }], [{ text: "🌐 Buka Web HestiaFlow", url: WEB_URL }]] };
 }
+function orderKeyboard() {
+  return { inline_keyboard: [[{ text: "Plus • 5k (3 hari)", callback_data: "order_plus" }], [{ text: "Pro • 8k (1 minggu)", callback_data: "order_pro" }], [{ text: "Prem • 15k (2 Minggu)", callback_data: "order_premium" }], [{ text: "🔙 Kembali", callback_data: "back_main" }]] };
+}
+const WELCOME_TEXT = `Assalamualaikum! Ada yang bisa aku bantu? Ini bot <b>HestiaFlow</b>.\n\n<b>Pilihan Paket Tier:</b>\n• <b>Plus</b> — Aurora (30 model) — <b>Rp 5.000</b> (3 Hari)\n• <b>Pro</b> — Nova (49 model) — <b>Rp 8.000</b> (1 Minggu)\n• <b>Premium</b> — Stella (514 model) — <b>Rp 15.000</b> (2 Minggu)\n\nPerintah: /id (lihat ID Telegram kamu), /myorders (lihat pesananmu), /grup (link grup).`;
 async function sendMsg(chatId, text, withKeyboard) {
   const body = { chat_id: chatId, text, parse_mode: "HTML" };
   if (withKeyboard) body.reply_markup = mainKeyboard();
@@ -32,7 +36,26 @@ function tierInfo(slug) {
   if (!p) return null;
   return `<b>Paket ${TIER_NAME[slug]}</b>\nHarga: <b>${p.amount}</b> (${p.dur})\n\nUntuk pembayaran, hubungi Admin. Setelah bayar, kirim <b>foto bukti pembayaran</b> ke sini.`;
 }
+async function handleCallback(db, q) {
+  const chatId = q.message.chat.id;
+  const msgId = q.message.message_id;
+  const fromId = String(q.from ? q.from.id : "");
+  const data = String(q.data || "");
+  await tg("answerCallbackQuery", { callback_query_id: q.id });
+  if (data === "order_menu") {
+    await tg("editMessageText", { chat_id: chatId, message_id: msgId, text: "Assalamualaikum! Silakan pilih paket yang mau dipesan:", parse_mode: "HTML", reply_markup: orderKeyboard() });
+  } else if (data === "back_main") {
+    await tg("editMessageText", { chat_id: chatId, message_id: msgId, text: WELCOME_TEXT, parse_mode: "HTML", reply_markup: mainKeyboard() });
+  } else if (data.startsWith("order_")) {
+    const slug = data.slice("order_".length);
+    if (TIER_PRICE[slug]) {
+      db.prepare("INSERT OR REPLACE INTO bot_state (tg_user_id, last_tier_slug, updated_at) VALUES (?, ?, ?)").run(fromId, slug, new Date().toISOString());
+      await tg("sendPhoto", { chat_id: chatId, photo: WEB_URL + "qris.jpg", caption: `Assalamualaikum! Terima kasih sudah mampir. Kamu mau pesan Paket ${TIER_NAME[slug]} ya.\n\nHarga: ${(TIER_PRICE[slug] || {}).amount} (${(TIER_PRICE[slug] || {}).dur})\n\nSilakan scan QR di atas untuk bayar. Setelah bayar, kirim foto bukti pembayaran ke sini.` });
+    }
+  }
+}
 async function handleUpdate(db, u) {
+  if (u.callback_query) { await handleCallback(db, u.callback_query); return; }
   const m = u.message; if (!m) return;
   const chatId = m.chat.id;
   const fromId = String(m.from ? m.from.id : "");
