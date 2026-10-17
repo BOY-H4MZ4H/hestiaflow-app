@@ -39,7 +39,18 @@ CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 // ---------- seed ----------
 const AURORA_MODELS = ["claude-fable-5","claude-haiku-4-5-20251001","claude-opus-4-6","claude-opus-4.6","claude-opus-5","claude-sonnet-4-6","claude-sonnet-4.6","DeepSeek-V4-Flash","DeepSeek-V4-pro","doubao-seed-2-0-lite-260215","doubao-seedance-2-0-260128","gemini-2.5-flash","gemini-2.5-flash-image","gemini-2.5-flash-lite","gemini-3-flash-preview","gemini-3-pro-image","gemini-3-pro-image-preview","gemini-3.1-pro-preview","gemini-3.8-flash","GLM-5","gpt-5.4","gpt-5.6-luna","gpt-image-2","imagen-4.0-generate-001","Kimi-K2.5","kimi-k3","MiniMax-H3","MiniMax-M2.7","qwen3.5-plus","qwen3.6-plus"];
 function seed() {
-  try { const cols = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name); if (!cols.includes("tier_slug")) db.prepare("ALTER TABLE users ADD COLUMN tier_slug TEXT DEFAULT 'gratis'").run(); db.prepare("UPDATE users SET tier_slug='gratis' WHERE tier_slug IS NULL OR tier_slug=''").run(); } catch {}
+  // Migrasi: tabel vouchers + users.tier_expires_at (masa berlaku paket dari vocher).
+  db.prepare("CREATE TABLE IF NOT EXISTS vouchers (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE, tier_slug TEXT, duration_days INTEGER, used INTEGER DEFAULT 0, used_by INTEGER, used_at TEXT, created_at TEXT DEFAULT (datetime('now')))").run();
+  try {
+    const ucols = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+    if (!ucols.includes("tier_expires_at")) db.prepare("ALTER TABLE users ADD COLUMN tier_expires_at TEXT").run();
+  } catch {}
+  // Migrasi: users.tier_slug (paket user: gratis/plus/pro/premium, default gratis) — untuk kunci tier picker.
+  try {
+    const cols = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+    if (!cols.includes("tier_slug")) db.prepare("ALTER TABLE users ADD COLUMN tier_slug TEXT DEFAULT 'gratis'").run();
+    db.prepare("UPDATE users SET tier_slug='gratis' WHERE tier_slug IS NULL OR tier_slug=''").run();
+  } catch {}
   // Migrasi: tambah provider Nova (Tier Pro). Model + credit user-facing (bukan secret).
   // upstream_url Nova TIDAK ditulis di kode (anti-bocor) — di-set via env PROVIDER_NOVA_UPSTREAM_URL.
   // Hapus provider Nova dobel (kalau migrasi lama sempat jalan 2x) — sisakan 1 (id terkecil).
@@ -103,13 +114,13 @@ function verifySession(cookie) {
   if (!cookie) return null;
   try {
     const parts = cookie.split(".");
-  if (parts.length !== 3) return null;
-  const [uid, exp, sig] = parts;
-  const expect = crypto.createHmac("sha256", SESSION_SECRET).update(`${uid}.${exp}`).digest("hex");
-  if (sig.length !== expect.length) return null;
-  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expect))) return null;
-  if (Date.now() > Number(exp)) return null;
-  return Number(uid);
+    if (parts.length !== 3) return null;
+    const [uid, exp, sig] = parts;
+    const expect = crypto.createHmac("sha256", SESSION_SECRET).update(`${uid}.${exp}`).digest("hex");
+    if (sig.length !== expect.length) return null;
+    if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expect))) return null;
+    if (Date.now() > Number(exp)) return null;
+    return Number(uid);
   } catch { return null; }
 }
 function getSessionUser(req) {
@@ -117,7 +128,8 @@ function getSessionUser(req) {
   const m = raw.match(/(?:^|;\s*)hestia_session=([^;]+)/);
   const uid = verifySession(m ? decodeURIComponent(m[1]) : null);
   if (!uid) return null;
-  const u = db.prepare("SELECT id,email,name,avatar,is_admin,created_at,COALESCE(tier_slug,'gratis') AS tier_slug,tier_expires_at FROM users WHERE id=?").get(uid); if (!u) return null; u.tier_slug = effectiveTierSlug(u); return u;
+  const u = db.prepare("SELECT id,email,name,avatar,is_admin,created_at,COALESCE(tier_slug,'gratis') AS tier_slug,tier_expires_at FROM users WHERE id=?").get(uid);
+  if (!u) return null; u.tier_slug = effectiveTierSlug(u); return u;
 }
 function requireAuth(req, res, next) {
   const u = getSessionUser(req);
@@ -531,7 +543,18 @@ async function doHarvest({ userId, providerId, count }) {
   if (!provider) throw new Error("provider_not_found");
   if (!Number.isInteger(count) || count < 1 || count > 50) throw new Error("count_must_be_1_to_50");
   const tier = db.prepare("SELECT * FROM tiers WHERE id=?").get(provider.tier_id);
-  if (userId != null && tier && TIER_HARVEST_LIMIT[tier.slug] != null) { const limit = TIER_HARVEST_LIMIT[tier.slug]; const existing = db.prepare("SELECT COUNT(*) AS c FROM api_keys WHERE user_id=? AND tier_id=?").get(userId, tier.id).c; if (existing + count > limit) throw new Error(`Limit Tier ${tier.name || tier.slug}: maks ${limit} akun. Kamu sudah punya ${existing} akun.`); }
+  // Kunci tier: user tidak bisa panen tier di atas paketnya (admin userId=null = bebas).
+  if (userId != null && tier && TIER_RANK[tier.slug] != null) {
+    const u = db.prepare("SELECT COALESCE(tier_slug,'gratis') AS tier_slug,tier_expires_at FROM users WHERE id=?").get(userId);
+    const userRank = TIER_RANK[effectiveTierSlug(u)] ?? 0;
+    if (TIER_RANK[tier.slug] > userRank) throw new Error("Kamu tidak Bisa Memilih Menu ini Segera Upgrade Paket kamu");
+  }
+  // Per-tier TOTAL harvest limit per user (admin userId=null = unlimited).
+  if (userId != null && tier && TIER_HARVEST_LIMIT[tier.slug] != null) {
+    const limit = TIER_HARVEST_LIMIT[tier.slug];
+    const existing = db.prepare("SELECT COUNT(*) AS c FROM api_keys WHERE user_id=? AND tier_id=?").get(userId, tier.id).c;
+    if (existing + count > limit) throw new Error(`Limit Tier ${tier.name || tier.slug}: maks ${limit} akun. Kamu sudah punya ${existing} akun.`);
+  }
   // Resolve models: endpoint (if operator key) -> configured list -> honest empty.
   let models = null, source = "none";
   const fetched = await fetchProviderModels(provider);
@@ -671,7 +694,9 @@ app.post("/api/my-keys", requireAuth, async (req, res) => {
     res.json({ ok: true, ...out });
   } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
 });
-app.post("/api/voucher/redeem", requireAuth, (req, res) => { const raw = String(req.body.code || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+// Voucher redeem: kode 16 karakter (1x pakai) -> upgrade paket user selama durasi tier (Plus 3 hari, Pro 7 hari, Premium 14 hari).
+app.post("/api/voucher/redeem", requireAuth, (req, res) => {
+  const raw = String(req.body.code || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   if (raw.length !== 16) return res.status(400).json({ ok: false, error: "Kode vocher harus 16 karakter." });
   const v = db.prepare("SELECT * FROM vouchers WHERE REPLACE(code,'-','')=?").get(raw);
   if (!v) return res.status(404).json({ ok: false, error: "Kode vocher tidak ditemukan." });
@@ -679,10 +704,25 @@ app.post("/api/voucher/redeem", requireAuth, (req, res) => { const raw = String(
   const expires = new Date(Date.now() + (v.duration_days || 0) * 86400000).toISOString();
   db.prepare("UPDATE vouchers SET used=1, used_by=?, used_at=datetime('now') WHERE id=?").run(req.user.id, v.id);
   db.prepare("UPDATE users SET tier_slug=?, tier_expires_at=? WHERE id=?").run(v.tier_slug, expires, req.user.id);
-  res.json({ ok: true, tierSlug: v.tier_slug, expiresAt: expires, message: `Vocher berhasil! Paket kamu jadi ${v.tier_slug === "premium" ? "Premium" : v.tier_slug === "pro" ? "Pro" : "Plus"} sampai ${new Date(expires).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}.` }); });
-app.post("/api/admin/vouchers", requireAdmin, (req, res) => { const slug = String(req.body.tierSlug || "").toLowerCase(); if (!["plus", "pro", "premium"].includes(slug)) return res.status(400).json({ ok: false, error: "invalid_tier" }); const code = genVoucherCode(); const r = db.prepare("INSERT INTO vouchers (code,tier_slug,duration_days) VALUES (?,?,?)").run(code, slug, VOUCHER_DAYS[slug]); res.json({ ok: true, voucher: { id: r.lastInsertRowid, code, tierSlug: slug, durationDays: VOUCHER_DAYS[slug], used: false } }); });
-app.get("/api/admin/vouchers", requireAdmin, (req, res) => { const rows = db.prepare("SELECT v.*, u.email AS used_by_email FROM vouchers v LEFT JOIN users u ON u.id=v.used_by ORDER BY v.created_at DESC").all(); res.json({ ok: true, vouchers: rows.map((v) => ({ id: v.id, code: v.code, tierSlug: v.tier_slug, durationDays: v.duration_days, used: !!v.used, usedBy: v.used_by_email || null, usedAt: v.used_at, createdAt: v.created_at })) }); });
-app.delete("/api/admin/vouchers/:id", requireAdmin, (req, res) => { const out = db.prepare("DELETE FROM vouchers WHERE id=?").run(req.params.id); if (!out.changes) return res.status(404).json({ ok: false, error: "voucher_not_found" }); res.json({ ok: true }); });
+  res.json({ ok: true, tierSlug: v.tier_slug, expiresAt: expires, message: `Vocher berhasil! Paket kamu jadi ${v.tier_slug === "premium" ? "Premium" : v.tier_slug === "pro" ? "Pro" : "Plus"} sampai ${new Date(expires).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}.` });
+});
+// Admin: buat / list / hapus vocher.
+app.post("/api/admin/vouchers", requireAdmin, (req, res) => {
+  const slug = String(req.body.tierSlug || "").toLowerCase();
+  if (!["plus", "pro", "premium"].includes(slug)) return res.status(400).json({ ok: false, error: "invalid_tier" });
+  const code = genVoucherCode();
+  const r = db.prepare("INSERT INTO vouchers (code,tier_slug,duration_days) VALUES (?,?,?)").run(code, slug, VOUCHER_DAYS[slug]);
+  res.json({ ok: true, voucher: { id: r.lastInsertRowid, code, tierSlug: slug, durationDays: VOUCHER_DAYS[slug], used: false } });
+});
+app.get("/api/admin/vouchers", requireAdmin, (req, res) => {
+  const rows = db.prepare("SELECT v.*, u.email AS used_by_email FROM vouchers v LEFT JOIN users u ON u.id=v.used_by ORDER BY v.created_at DESC").all();
+  res.json({ ok: true, vouchers: rows.map((v) => ({ id: v.id, code: v.code, tierSlug: v.tier_slug, durationDays: v.duration_days, used: !!v.used, usedBy: v.used_by_email || null, usedAt: v.used_at, createdAt: v.created_at })) });
+});
+app.delete("/api/admin/vouchers/:id", requireAdmin, (req, res) => {
+  const out = db.prepare("DELETE FROM vouchers WHERE id=?").run(req.params.id);
+  if (!out.changes) return res.status(404).json({ ok: false, error: "voucher_not_found" });
+  res.json({ ok: true });
+});
 app.post("/api/harvest", requireAuth, async (req, res) => {
   const count = Number(req.body.count);
   const provider = db.prepare("SELECT * FROM providers WHERE id=?").get(req.body.providerId);
@@ -723,7 +763,13 @@ app.get("/api/admin/users", requireAdmin, (req, res) => {
   const rows = db.prepare("SELECT u.*, (SELECT COUNT(*) FROM api_keys k WHERE k.user_id=u.id AND k.status='active') AS key_count FROM users u ORDER BY u.created_at DESC").all();
   res.json({ ok: true, users: rows.map((u) => ({ id: u.id, email: u.email, name: u.name, avatar: u.avatar, isAdmin: !!u.is_admin, keyCount: u.key_count, createdAt: u.created_at, tierSlug: effectiveTierSlug(u) })) });
 });
-app.post("/api/admin/users/:id/tier", requireAdmin, (req, res) => { const slug = String(req.body.tierSlug || "").toLowerCase(); if (!["gratis", "plus", "pro", "premium"].includes(slug)) return res.status(400).json({ ok: false, error: "invalid_tier" }); const out = db.prepare("UPDATE users SET tier_slug=? WHERE id=?").run(slug, req.params.id); if (!out.changes) return res.status(404).json({ ok: false, error: "user_not_found" }); res.json({ ok: true, tierSlug: slug }); });
+app.post("/api/admin/users/:id/tier", requireAdmin, (req, res) => {
+  const slug = String(req.body.tierSlug || "").toLowerCase();
+  if (!["gratis", "plus", "pro", "premium"].includes(slug)) return res.status(400).json({ ok: false, error: "invalid_tier" });
+  const out = db.prepare("UPDATE users SET tier_slug=? WHERE id=?").run(slug, req.params.id);
+  if (!out.changes) return res.status(404).json({ ok: false, error: "user_not_found" });
+  res.json({ ok: true, tierSlug: slug });
+});
 app.delete("/api/admin/users/:id", requireAdmin, (req, res) => {
   if (Number(req.params.id) === req.user.id) return res.status(400).json({ ok: false, error: "cannot_delete_self" });
   db.prepare("DELETE FROM api_keys WHERE user_id=?").run(req.params.id);
