@@ -82,7 +82,7 @@ function render() {
 }
 
 function voucherSection() {
-  return `<div class="section" style="text-align:center"><h2>Voucher</h2><p class="sub">Masukan Code Vocher Yang Di Beri Admin</p>
+  return `<div class="section" id="voucherSection" style="text-align:center"><h2>Voucher</h2><p class="sub">Masukan Code Vocher Yang Di Beri Admin</p>
   <div style="display:flex;flex-direction:column;align-items:center;gap:10px"><input id="voucherCode" placeholder="Kode Vocher" style="text-align:center;max-width:320px;width:100%" /><button class="btn btn-plum" onclick="redeemVoucher()">Tukar</button></div>
   <p id="voucherMsg" class="muted"></p></div>`;
 }
