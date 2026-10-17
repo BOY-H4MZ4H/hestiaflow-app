@@ -85,9 +85,9 @@ async function loadUser() {
   try {
     $("#userRoot").innerHTML = `
     <div class="section"><h2>Panen Akun</h2><p class="sub">Panen akun provider — tiap panen membuat 1 akun baru dengan email sementara yang berbeda-beda. Email & sandi tidak pernah ditampilkan. Pilih bebas 1–50 (maks 50).</p>
-      <div class="card"><div class="row">
+      <div class="card">
         <div><label>Provider</label><div id="harvestProviderSidebar" class="tier-sidebar"></div></div>
-        <div><label>Jumlah akun (1–50)</label><div class="stepper">
+        <div style="margin-top:14px"><label>Jumlah akun (1–50)</label><div class="stepper">
           <button type="button" onclick="stepCount(-1)">−</button>
           <input id="harvestCount" type="number" min="1" max="50" value="1" oninput="clampCount(this)" />
           <button type="button" onclick="stepCount(1)">+</button></div></div>
