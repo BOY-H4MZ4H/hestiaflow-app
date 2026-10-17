@@ -488,18 +488,28 @@ async function tryAutoRegisterAurora(provider) {
     return null;
   };
   const guerrilla = async () => {
-    try {
-      let last = null;
-      for (let attempt = 0; attempt < 20; attempt++) {
-        const r = await fetch("https://api.guerrillamail.com/ajax.php?f=get_email_address&lang=en", { signal: AbortSignal.timeout(15000) });
-        const j = await r.json().catch(() => null);
-        if (j && j.email_addr) {
-          last = { email: j.email_addr, sid: j.sid_token, kind: "guerrilla" };
-          if (j.email_addr.endsWith("@sharklasers.com")) return last;
+    // get_email_address lewat proxy (IP beda -> domain beda dari pool).
+    // Terima domain apa pun KECUALI @guerrillamailblock.com (yang di-blok Tokit).
+    const proxies = await fetchProxyList();
+    const attempts = [null, ...proxies.slice(0, 3)];
+    for (const proxy of attempts) {
+      try {
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const opts = { signal: AbortSignal.timeout(15000) };
+          if (proxy) { const d = proxyDispatcher(proxy); if (d) opts.dispatcher = d; }
+          const r = await fetch("https://api.guerrillamail.com/ajax.php?f=get_email_address&lang=en", opts);
+          const j = await r.json().catch(() => null);
+          if (j && j.email_addr) {
+            if (!j.email_addr.endsWith("@guerrillamailblock.com")) return { email: j.email_addr, sid: j.sid_token, kind: "guerrilla" };
+          }
+          await new Promise((res) => setTimeout(res, 1000));
         }
-        await new Promise((res) => setTimeout(res, 1000));
-      }
-      return last;
+      } catch {}
+    }
+    try {
+      const r = await fetch("https://api.guerrillamail.com/ajax.php?f=get_email_address&lang=en", { signal: AbortSignal.timeout(15000) });
+      const j = await r.json().catch(() => null);
+      if (j && j.email_addr) return { email: j.email_addr, sid: j.sid_token, kind: "guerrilla" };
     } catch {}
     return null;
   };
