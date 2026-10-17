@@ -106,7 +106,7 @@ async function loadUser() {
       <div style="margin-top:14px"><button class="btn btn-plum" id="harvestBtn" onclick="doUserHarvest()">Panen Akun</button></div>
       <div class="progress" style="margin-top:14px"><div id="harvestProg"></div></div>
       <p class="kv" id="harvestProgText"></p>
-      <div class="logbox" id="harvestLog">${logs.logs.slice(0, 30).map((l) => `<div class="ok">${esc(l.message)}</div>`).join("") || "Belum ada log panen."}</div>
+      <div class="termbox" id="harvestProc" style="display:none"></div>
       <p class="kv">Slot hasil panen berstatus siap; kredensialnya dilengkapi lewat Pool Worker oleh operator.</p></div></div>`;
   } catch (e) { $("#userRoot").innerHTML = `<p class="muted">Gagal memuat: ${esc(e.message)}</p>`; }
 }
@@ -126,16 +126,33 @@ async function deleteMyKey(id, btn) {
 }
 function clampCount(el) { let v = parseInt(el.value, 10); if (isNaN(v)) v = 1; el.value = Math.max(1, Math.min(50, v)); }
 function stepCount(d) { const el = $("#harvestCount"); if (!el) return; el.value = Math.max(1, Math.min(50, (parseInt(el.value, 10) || 1) + d)); }
+async function refreshKeyList() {
+  try {
+    const keys = await api("/api/my-keys");
+    const el = $("#keyList"); if (!el) return;
+    el.innerHTML = keys.keys.length ? keyBoxAll(keys.keys) + `<p class="kv">Base URL: ${esc(SETTINGS.baseUrl)} <button class="btn btn-ghost btn-sm" onclick="copyText('${esc(SETTINGS.baseUrl)}',this)">Salin Base URL</button></p>` : `<p class="muted">Belum ada kunci. Panen akun di bawah untuk mendapatkan API key.</p>`;
+  } catch {}
+}
 async function doUserHarvest() {
   const btn = $("#harvestBtn"); btn.disabled = true;
   const providerId = Number($("#harvestProvider").value), count = Math.max(1, Math.min(50, parseInt($("#harvestCount").value, 10) || 1));
+  const proc = $("#harvestProc"); proc.style.display = "block";
+  proc.innerHTML = `<div class="term-line"><span class="cute-spin"></span> Lagi Proses...</div><div class="term-line">Scrap Proxy...</div>`;
   $("#harvestProg").style.width = "0%"; $("#harvestProgText").textContent = "";
   try {
     const out = await api("/api/harvest", { method: "POST", body: JSON.stringify({ providerId, count }) });
-    out.logs.forEach((m) => { const d = document.createElement("div"); d.className = "ok"; d.textContent = m; $("#harvestLog").prepend(d); });
     $("#harvestProg").style.width = "100%"; $("#harvestProgText").textContent = `${out.count} dari ${count} akun berhasil dipanen`;
-    loadUser();
-  } catch (e) { alert("Panen gagal: " + e.message); btn.disabled = false; }
+    let html = `<div class="term-line">Total Proxy OK: ${out.proxyTotal != null ? out.proxyTotal : 0}</div>`;
+    (out.keys || []).forEach((k, i) => {
+      html += `<div class="term-line term-key"><div>${i + 1}.</div><div>Api key : ${esc(k.key || "")}</div><div>Token/Credit : ${k.credit != null ? esc(k.credit) : "Tidak dinyatakan"}</div></div>`;
+    });
+    proc.innerHTML = html;
+    btn.disabled = false;
+    refreshKeyList();
+  } catch (e) {
+    proc.innerHTML = `<div class="term-line term-err">Gagal: ${esc(e.message)}</div>`;
+    btn.disabled = false;
+  }
 }
 
 // ---------- admin ----------
