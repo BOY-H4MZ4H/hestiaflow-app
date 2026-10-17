@@ -63,7 +63,7 @@ function render() {
   const app = $("#app");
   let hero = `<div class="hero"><div class="goldline"></div><h1>Satu akun Google, semua API terbuka.</h1>
     <p>Daftar dengan Google, dapatkan API key HestiaFlow + Base URL HestiaFlow + Credit. Tanpa kartu, tanpa sandi.</p>
-    ${!ME ? `<button class="btn btn-gold" onclick="location.href='/auth/google'">Masuk dengan Google</button>` : `<span class="badge premium">Masuk sebagai ${esc(ME.name || ME.email)}</span>`}
+    ${!ME ? `<button class="btn btn-gold" onclick="location.href='/auth/google'">Ayo coba Sekarang</button>` : `<span class="badge premium">Masuk sebagai ${esc(ME.name || ME.email)}</span>`}
     </div>`;
   if (!ME) {
     const urlParams = new URLSearchParams(location.search);
