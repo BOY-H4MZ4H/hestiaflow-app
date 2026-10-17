@@ -114,10 +114,15 @@ function keyBoxAll(keys) {
   return `<div class="keybox" style="margin-bottom:12px"><div class="lbl">API key HestiaFlow</div><div class="key-list-scroll">${keys.map((k) => `<div class="key-row"><span class="key-row-tag">${esc(k.tierSlug || "")} · ${esc(k.providerBrand || "")} · Credit: ${k.credit != null ? esc(k.credit) : "Tidak dinyatakan"}</span><span class="key-row-val">${esc(k.key)}</span><div style="display:flex;gap:6px;margin-top:4px"><button class="btn btn-ghost btn-sm" onclick="copyText('${esc(k.key)}',this)">Salin Key</button><button class="btn btn-ghost btn-sm" style="color:#b91c1c" onclick="deleteMyKey(${k.id},this)">Hapus</button></div></div>`).join("")}</div></div>`;
 }
 async function deleteMyKey(id, btn) {
-  if (!confirm("Hapus key ini? Data panen (API key + akun provider) akan dihapus permanen dan tidak tersimpan lagi.")) return;
+  // 2-step in-page confirm (no native dialog, so it works everywhere).
+  if (btn.dataset.armed !== "1") {
+    btn.dataset.armed = "1"; btn.textContent = "Yakin Hapus?";
+    setTimeout(() => { if (btn.dataset) { btn.dataset.armed = ""; btn.textContent = "Hapus"; } }, 3000);
+    return;
+  }
   btn.disabled = true; btn.textContent = "Menghapus...";
   try { await api(`/api/my-keys/${id}`, { method: "DELETE" }); loadUser(); }
-  catch (e) { alert("Gagal hapus: " + e.message); btn.disabled = false; btn.textContent = "Hapus"; }
+  catch (e) { alert("Gagal hapus: " + e.message); btn.disabled = false; btn.textContent = "Hapus"; btn.dataset.armed = ""; }
 }
 function clampCount(el) { let v = parseInt(el.value, 10); if (isNaN(v)) v = 1; el.value = Math.max(1, Math.min(50, v)); }
 function stepCount(d) { const el = $("#harvestCount"); if (!el) return; el.value = Math.max(1, Math.min(50, (parseInt(el.value, 10) || 1) + d)); }
