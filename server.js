@@ -194,14 +194,16 @@ async function tryAutoRegisterLuna(provider) {
       body: JSON.stringify({ name, email: tempEmail, password: tempPassword }), signal: ctl.signal,
     });
     clearTimeout(t);
+    const j = await r.json().catch(() => null);
+    const hasToken = !!(j && j.token);
+    console.log(`[luna] signup status=${r.status} ok=${r.ok} hasToken=${hasToken} emailDomain=${String(tempEmail).split("@")[1] || ""}`);
     if (!r.ok) return null;
     const setCookie = r.headers.getSetCookie ? r.headers.getSetCookie() : [];
     cookie = setCookie.map((c) => c.split(";")[0]).join("; ");
-    const j = await r.json().catch(() => null);
     if (!j || !j.token) return null;
     if (cookie) cookie += `; token=${j.token}`;
     else cookie = `token=${j.token}`;
-  } catch { return null; }
+  } catch (e) { console.log(`[luna] signup exception ${e && e.message ? e.message : "unknown"}`); return null; }
   // 4) Create API key (session cookies).
   try {
     const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 20000);
@@ -209,12 +211,13 @@ async function tryAutoRegisterLuna(provider) {
       method: "POST", headers: { "X-Forwarded-For": randIp(), "User-Agent": UA, Cookie: cookie }, signal: ctl.signal,
     });
     clearTimeout(t);
-    if (!r.ok) return null;
     const j = await r.json().catch(() => null);
     const key = j && (j.key || j.api_key || j.apiKey);
+    console.log(`[luna] key status=${r.status} ok=${r.ok} hasKey=${!!key} hasCookie=${!!cookie}`);
+    if (!r.ok) return null;
     if (!key) return null;
     return { upstreamApiKey: key, upstreamBaseUrl: apiBase, tempEmail, tempPassword };
-  } catch { return null; }
+  } catch (e) { console.log(`[luna] key exception ${e && e.message ? e.message : "unknown"}`); return null; }
 }
 
 // Auto-register a real provider account (server-side, no admin config).
