@@ -42,9 +42,13 @@ function seed() {
   const tierCount = db.prepare("SELECT COUNT(*) c FROM tiers").get().c;
   if (tierCount > 0) return;
   const insTier = db.prepare("INSERT INTO tiers (slug,name,audience_label,badge,max_models,sort_order) VALUES (?,?,?,?,?,?)");
-  const g = insTier.run("gratis", "Gratis", "KHUSUS PENGGUNA GRATIS", "TIER GRATIS · KHUSUS PENGGUNA GRATIS", 2, 1).lastInsertRowid;
-  const p = insTier.run("plus", "Plus", "UNTUK PENGGUNA PLUS / BERBAYAR", "TIER PLUS · UNTUK PENGGUNA PLUS / BERBAYAR", null, 2).lastInsertRowid;
-  const pr = insTier.run("premium", "Premium", "PALING MAHAL", "★ TIER PREMIUM · PALING MAHAL", null, 3).lastInsertRowid;
+  // Migrasi: badge pendek (tulisan panjang dihilangin) untuk DB yang sudah ada.
+  db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("TIER GRATIS", "gratis");
+  db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("TIER PLUS", "plus");
+  db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("★ TIER PREMIUM", "premium");
+  const g = insTier.run("gratis", "Gratis", "KHUSUS PENGGUNA GRATIS", "TIER GRATIS", 2, 1).lastInsertRowid;
+  const p = insTier.run("plus", "Plus", "UNTUK PENGGUNA PLUS / BERBAYAR", "TIER PLUS", null, 2).lastInsertRowid;
+  const pr = insTier.run("premium", "Premium", "PALING MAHAL", "★ TIER PREMIUM", null, 3).lastInsertRowid;
   const insProv = db.prepare("INSERT INTO providers (tier_id,brand_name,tagline,model_count,model_list_json,model_notes_json,credit_note,default_credit,sort_order) VALUES (?,?,?,?,?,?,?,?,?)");
   insProv.run(g, "Luna", "Cahaya lembut untuk langkah pertama.", 2,
     JSON.stringify(["qwen3-coder:30b", "llama3.2:3b"]),
