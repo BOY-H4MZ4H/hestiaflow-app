@@ -79,7 +79,7 @@ footer img{width:30px;height:30px;border-radius:50%;object-fit:cover;border:1.5p
 
 .termbox{background:#0f0a12;color:var(--ivory);border-radius:12px;padding:12px 14px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.7;max-height:320px;overflow:auto;border:1px solid #2a1e33}
 .term-line{word-break:break-all}
-.term-key{margin-top:8px;padding-top:8px;border-top:1px dashed rgba(74,222,128,.35)}
+.term-key{margin-top:8px;padding-top:8px;border-top:1px dashed rgba(212,175,55,.35)}
 .term-err{color:#f87171}
 .cute-spin{display:inline-block;width:13px;height:13px;border:2px solid rgba(212,175,55,.25);border-top-color:var(--gold2);border-radius:50%;animation:cuteSpin .7s linear infinite;vertical-align:-2px;margin-right:6px}
 @keyframes cuteSpin{to{transform:rotate(360deg)}}
