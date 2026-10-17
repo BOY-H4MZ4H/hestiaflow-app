@@ -22,11 +22,10 @@ function copyText(t, btn) {
 function scrollToId(id) { const el = document.getElementById(id); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }
 
 async function load() {
-  try {
-    const me = await api("/api/me"); ME = me.user;
-    const pub = await api("/api/public/tiers"); TIERS = pub.tiers || [];
-    const st = await api("/api/public/settings"); SETTINGS = st;
-    const pool = await api("/api/public/pool"); POOL = pool;
+  try { const me = await api("/api/me"); ME = me.user; } catch {}
+  try { const pub = await api("/api/public/tiers"); TIERS = pub.tiers || []; } catch {}
+  try { const st = await api("/api/public/settings"); SETTINGS = st; } catch {}
+  try { const pool = await api("/api/public/pool"); POOL = pool; } catch {}
     const fb = $("#footBase"); if (fb) fb.textContent = SETTINGS.baseUrl || "https://api.hestia-gateway.id/v1";
   } catch (e) { /* offline-ish */ }
   renderAuth();
@@ -238,7 +237,7 @@ async function doUserHarvest() {
 // ---------- admin ----------
 async function loadAdmin() {
   try {
-    const [stats, users, keys, providers, workers, tiers, settings, logs] = await Promise.all([
+    const [stats, users, keys, providers, workers, tiers, settings, logs, vouchers] = await Promise.all([
       api("/api/admin/stats"), api("/api/admin/users"), api("/api/admin/keys"),
       api("/api/admin/providers"), api("/api/admin/workers"), api("/api/admin/tiers"),
       api("/api/admin/settings"), api("/api/admin/harvest-logs"), api("/api/admin/vouchers"),
