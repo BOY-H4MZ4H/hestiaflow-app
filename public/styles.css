@@ -127,3 +127,6 @@ footer img{width:30px;height:30px;border-radius:50%;object-fit:cover;border:1.5p
 .endpoint-desc{color:var(--muted);font-size:12px}
 
 .copy-snippet-btn{padding:4px 10px;border:1px solid var(--gold);border-radius:999px;background:transparent;color:var(--gold2);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
+
+.card.tier{position:relative;overflow:hidden;padding-top:36px}
+.tier-ribbon{position:absolute;top:14px;right:-36px;width:130px;transform:rotate(45deg);background:var(--gold);color:var(--plum);text-align:center;font-weight:800;font-style:italic;font-size:13px;padding:4px 0;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.2);z-index:2}
