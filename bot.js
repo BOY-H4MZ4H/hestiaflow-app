@@ -17,8 +17,15 @@ async function tg(method, body) {
   const r = await fetch(`${API}/${method}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
   return r.json().catch(() => ({}));
 }
-async function sendMsg(chatId, text) {
-  return tg("sendMessage", { chat_id: chatId, text, parse_mode: "HTML" });
+const GROUP_URL = "https://t.me/+MXrvI2tkFjg5ZmQ1";
+const WEB_URL = "https://hestiaflow-app-production.up.railway.app/";
+function mainKeyboard() {
+  return { inline_keyboard: [[{ text: "💬 Gabung Grup Tele", url: GROUP_URL }], [{ text: "🌐 Buka Web HestiaFlow", url: WEB_URL }]] };
+}
+async function sendMsg(chatId, text, withKeyboard) {
+  const body = { chat_id: chatId, text, parse_mode: "HTML" };
+  if (withKeyboard) body.reply_markup = mainKeyboard();
+  return tg("sendMessage", body);
 }
 function tierInfo(slug) {
   const p = TIER_PRICE[slug];
@@ -32,15 +39,16 @@ async function handleUpdate(db, u) {
   const text = String(m.text || "").trim();
   const username = m.from ? (m.from.username || "") : "";
   if (text === "/id") { await sendMsg(chatId, `ID Telegram kamu: <code>${fromId}</code>`); return; }
+  if (text === "/grup") { await sendMsg(chatId, `Gabung grup HestiaFlow di sini: ${GROUP_URL}`, true); return; }
   if (text.startsWith("/start")) {
     const payload = text.replace("/start", "").trim();
     let slug = "";
     if (payload.startsWith("hestiaflow_")) slug = payload.slice("hestiaflow_".length).toLowerCase();
     if (slug && TIER_PRICE[slug]) {
       db.prepare("INSERT OR REPLACE INTO bot_state (tg_user_id, last_tier_slug, updated_at) VALUES (?, ?, ?)").run(fromId, slug, new Date().toISOString());
-      await sendMsg(chatId, `Halo! Kamu mau pesan <b>Paket ${TIER_NAME[slug]}</b>.\n\n${tierInfo(slug)}\n\nKirim foto bukti pembayaran ke sini setelah bayar.`);
+      await sendMsg(chatId, `Halo! Kamu mau pesan <b>Paket ${TIER_NAME[slug]}</b>.\n\n${tierInfo(slug)}\n\nKirim foto bukti pembayaran ke sini setelah bayar.`, true);
     } else {
-      await sendMsg(chatId, `Halo! Ini bot <b>HestiaFlow</b>.\n\nPilih paket di web (klik tombol <b>Pesan</b> di kartu tier), lalu kembali ke sini untuk kirim bukti pembayaran.\n\nPerintah: /id (lihat ID Telegram kamu), /myorders (lihat pesananmu).`);
+      await sendMsg(chatId, `Halo! Ini bot <b>HestiaFlow</b>.\n\nPilih paket di web (klik tombol <b>Pesan</b> di kartu tier), lalu kembali ke sini untuk kirim bukti pembayaran.\n\nPerintah: /id (lihat ID Telegram kamu), /myorders (lihat pesananmu), /grup (link grup).`, true);
     }
     return;
   }
