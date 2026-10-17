@@ -185,18 +185,42 @@ async function tryAutoRegisterLuna(provider) {
   for (let i = pwd.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pwd[i], pwd[j]] = [pwd[j], pwd[i]]; }
   const tempPassword = pwd.join("");
   const name = "User " + randStr(6, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ");
-  // 3) Signup.
+  // 3) Signup (browser-like headers; retry without X-Forwarded-For if 403).
   let cookie = "";
+  let r = null, j = null;
   try {
-    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 20000);
-    const r = await fetch(webBase + "/api/auth/sign-up/email", {
-      method: "POST", headers: { "Content-Type": "application/json", "X-Forwarded-For": randIp(), "User-Agent": UA },
-      body: JSON.stringify({ name, email: tempEmail, password: tempPassword }), signal: ctl.signal,
-    });
-    clearTimeout(t);
-    const j = await r.json().catch(() => null);
-    const hasToken = !!(j && j.token);
-    console.log(`[luna] signup status=${r.status} ok=${r.ok} hasToken=${hasToken} emailDomain=${String(tempEmail).split("@")[1] || ""}`);
+    const body = JSON.stringify({ name, email: tempEmail, password: tempPassword });
+    const mkHeaders = (withXff) => {
+      const h = { "Content-Type": "application/json", "User-Agent": UA,
+        "Accept": "application/json, text/plain, */*", "Accept-Language": "en-US,en;q=0.9",
+        "Referer": webBase + "/", "Origin": webBase,
+        "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty" };
+      if (withXff) h["X-Forwarded-For"] = randIp();
+      return h;
+    };
+    const doSignup = async (withXff) => {
+      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 20000);
+      try {
+        const res = await fetch(webBase + "/api/auth/sign-up/email", { method: "POST", headers: mkHeaders(withXff), body, signal: ctl.signal });
+        const jj = await res.json().catch(() => null);
+        return { res, jj };
+      } finally { clearTimeout(t); }
+    };
+    let attempt = await doSignup(true);
+    r = attempt.res; j = attempt.jj;
+    let flags = "";
+    if (!r.ok) {
+      const txt = JSON.stringify(j || "").toLowerCase();
+      for (const kw of ["cloudflare", "disposable", "captcha", "bot", "verify", "forbidden", "blocked"]) if (txt.includes(kw)) flags += kw + ",";
+    }
+    console.log(`[luna] signup status=${r.status} ok=${r.ok} hasToken=${!!(j && j.token)} emailDomain=${String(tempEmail).split("@")[1] || ""} flags=${flags} xff=1`);
+    if (!r.ok && r.status === 403) {
+      attempt = await doSignup(false);
+      r = attempt.res; j = attempt.jj;
+      let flags2 = "";
+      if (!r.ok) { const txt2 = JSON.stringify(j || "").toLowerCase(); for (const kw of ["cloudflare", "disposable", "captcha", "bot", "verify", "forbidden", "blocked"]) if (txt2.includes(kw)) flags2 += kw + ","; }
+      console.log(`[luna] signup-retry status=${r.status} ok=${r.ok} hasToken=${!!(j && j.token)} flags=${flags2} xff=0`);
+    }
     if (!r.ok) return null;
     const setCookie = r.headers.getSetCookie ? r.headers.getSetCookie() : [];
     cookie = setCookie.map((c) => c.split(";")[0]).join("; ");
