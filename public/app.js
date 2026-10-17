@@ -49,6 +49,7 @@ function tierShowcase() {
   return `<div class="section"><h2>Pilihan Paket Tier</h2>
   <div class="grid tiers">${TIERS.map((t) => `
     <div class="card tier ${t.slug === "premium" ? "premium" : ""}">
+      <div class="tier-ribbon" onclick="scrollToVoucher()">Pesan</div>
       <div class="tier-head"><span class="badge ${t.slug === "gratis" ? "gratis" : t.slug === "plus" ? "plus" : t.slug === "pro" ? "pro" : "premium"}">${esc(t.badge)}</span>${TIER_PRICE[t.slug] ? `<div class="tier-price"><div class="price">${TIER_PRICE[t.slug].amount}</div><div class="price-dur">${TIER_PRICE[t.slug].dur}</div></div>` : ""}</div>
       ${(t.providers || []).map((p) => `
         <div class="brand"><div class="medal ${t.slug === "premium" ? "gold" : ""}">${esc(p.brand.slice(0, 1))}</div>
@@ -186,6 +187,10 @@ function switchSnippet(tab) {
   const s = SNIPPETS[tab]; if (!s) return;
   const label = document.getElementById("snippetLabel"); if (label) label.textContent = s.label;
   const code = document.getElementById("snippetCode"); if (code) code.textContent = s.code;
+}
+function scrollToVoucher() {
+  const el = document.getElementById("voucherSection");
+  if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 function copySnippet(btn) {
   const code = document.getElementById("snippetCode");
