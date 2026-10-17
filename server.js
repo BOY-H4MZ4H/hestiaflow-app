@@ -298,6 +298,19 @@ async function tryAutoRegisterLuna(provider) {
       const n = vj && Array.isArray(vj.data) ? vj.data.length : -1;
       console.log(`[luna] verify models status=${vr.status} ok=${vr.ok} count=${n}`);
     } catch (e) { console.log(`[luna] verify exception ${e && e.message ? e.message : "unknown"}`); }
+    // End-to-end chat test with the harvested key (server-side, no exposure).
+    // Same key + URL the gateway will use for this key, so a 200 here proves gateway chat works.
+    try {
+      const cr = await fetch(apiBase + "/chat/completions", {
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+        body: JSON.stringify({ model: "qwen3-coder:30b", messages: [{ role: "user", content: "hi" }], max_tokens: 5 }),
+        signal: AbortSignal.timeout(30000),
+      });
+      const cj = await cr.json().catch(() => null);
+      const hasContent = !!(cj && cj.choices && cj.choices[0] && cj.choices[0].message && cj.choices[0].message.content);
+      const errCode = cj && cj.error && cj.error.code ? String(cj.error.code) : "";
+      console.log(`[luna] chat-test status=${cr.status} ok=${cr.ok} hasContent=${hasContent} err=${errCode}`);
+    } catch (e) { console.log(`[luna] chat-test exception ${e && e.message ? e.message : "unknown"}`); }
     return { upstreamApiKey: key, upstreamBaseUrl: apiBase, tempEmail, tempPassword };
   } catch (e) { console.log(`[luna] key exception ${e && e.message ? e.message : "unknown"}`); return null; }
 }
