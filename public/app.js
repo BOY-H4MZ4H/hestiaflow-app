@@ -85,12 +85,12 @@ function render() {
 async function loadUser() {
   try {
     $("#userRoot").innerHTML = `
-    <div class="section"><h2>Panen Akun</h2><p class="sub">Panen akun provider — tiap panen membuat 1 akun baru dengan email sementara yang berbeda-beda. Email & sandi tidak pernah ditampilkan. Pilih bebas 1–50 (maks 50).</p>
+    <div class="section"><h2>Panen Akun</h2><p class="sub">Panen akun provider — tiap panen membuat 1 akun baru dengan email sementara yang berbeda-beda. Email & sandi tidak pernah ditampilkan. Limit: Gratis 2, Plus 10, Pro 20, Prem 50 akun.</p>
       <div class="card">
         <div style="text-align:center"><label>Provider</label><div class="tier-picker"><button class="btn btn-plum tier-picker-btn" id="tierPickerBtn" onclick="toggleTierPicker()">Tier: <span id="tierPickerLabel">Gratis • 2 Model</span> ▾</button><div id="harvestProviderSidebar" class="tier-sidebar tier-picker-pop" style="display:none"></div></div></div>
-        <div style="margin-top:14px;text-align:center"><label>Jumlah akun (1–50)</label><div class="stepper">
+        <div style="margin-top:14px;text-align:center"><label id="harvestCountLabel">Jumlah akun (1–2)</label><div class="stepper">
           <button type="button" onclick="stepCount(-1)">−</button>
-          <input id="harvestCount" type="number" min="1" max="50" value="1" oninput="clampCount(this)" />
+          <input id="harvestCount" type="number" min="1" max="2" value="1" oninput="clampUserCount(this)" />
           <button type="button" onclick="stepCount(1)">+</button></div></div>
       </div>
       <div style="margin-top:14px;text-align:center"><button class="btn btn-plum" id="harvestBtn" onclick="doUserHarvest()">Panen Akun</button></div>
@@ -155,7 +155,11 @@ async function deleteMyKey(id, btn) {
   catch (e) { alert("Gagal hapus: " + e.message); btn.disabled = false; btn.textContent = "Hapus"; btn.dataset.armed = ""; }
 }
 function clampCount(el) { let v = parseInt(el.value, 10); if (isNaN(v)) v = 1; el.value = Math.max(1, Math.min(50, v)); }
-function stepCount(d) { const el = $("#harvestCount"); if (!el) return; el.value = Math.max(1, Math.min(50, (parseInt(el.value, 10) || 1) + d)); }
+const TIER_HARVEST_LIMIT = { gratis: 2, plus: 10, pro: 20, premium: 50 };
+function userHarvestLimit() { const pid = Number(selectedHarvestProviderId); const item = TIERS.flatMap((t) => (t.providers || []).map((p) => ({ tier: t, p }))).find((x) => x.p.id === pid); return item ? (TIER_HARVEST_LIMIT[item.tier.slug] || 50) : 50; }
+function updateHarvestLimitUI() { const lim = userHarvestLimit(); const lbl = $("#harvestCountLabel"); if (lbl) lbl.textContent = `Jumlah akun (1–${lim})`; const el = $("#harvestCount"); if (el) { el.max = lim; el.value = Math.max(1, Math.min(lim, parseInt(el.value, 10) || 1)); } }
+function clampUserCount(el) { let v = parseInt(el.value, 10); if (isNaN(v)) v = 1; el.value = Math.max(1, Math.min(userHarvestLimit(), v)); }
+function stepCount(d) { const el = $("#harvestCount"); if (!el) return; el.value = Math.max(1, Math.min(userHarvestLimit(), (parseInt(el.value, 10) || 1) + d)); }
 let selectedHarvestProviderId = null;
 function renderHarvestSidebar() {
   const el = $("#harvestProviderSidebar"); if (!el) return;
@@ -179,6 +183,7 @@ function selectHarvestProvider(pid) {
   const short = { gratis: "Gratis", plus: "Plus", pro: "Pro", premium: "Prem" };
   const cur = (TIERS.flatMap((t) => (t.providers || []).map((p) => ({ tier: t, p })))).find((x) => x.p.id === pid);
   const lbl = $("#tierPickerLabel"); if (lbl && cur) lbl.textContent = `${short[cur.tier.slug] || cur.tier.name} • ${cur.p.modelCount} Model`;
+  updateHarvestLimitUI();
   updateModelBox();
 }
 document.addEventListener("click", (e) => {
@@ -197,7 +202,7 @@ async function updateModelBox() {
 }
 async function doUserHarvest() {
   const btn = $("#harvestBtn"); btn.disabled = true;
-  const providerId = Number(selectedHarvestProviderId), count = Math.max(1, Math.min(50, parseInt($("#harvestCount").value, 10) || 1));
+  const providerId = Number(selectedHarvestProviderId), count = Math.max(1, Math.min(userHarvestLimit(), parseInt($("#harvestCount").value, 10) || 1));
   const proc = $("#harvestProc"); proc.style.display = "block";
   proc.innerHTML = `<div class="term-line"><span class="cute-spin"></span> Lagi Proses...</div><div class="term-line">Scrap Proxy...</div>`;
   $("#harvestProg").style.width = "0%"; $("#harvestProgText").textContent = "";
