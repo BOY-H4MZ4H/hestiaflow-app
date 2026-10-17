@@ -1,6 +1,7 @@
 :root{--plum:#3d1b3d;--plum2:#4a2150;--plum-deep:#2a1030;--gold:#c9a227;--gold2:#d4af37;--gold-soft:#e8d9a0;--ivory:#faf7f2;--ivory2:#f3ede2;--card:#fff;--text:#2b2030;--muted:#7a6f7d;--line:#e6dcc4;--red:#b03030;--green:#2e7d4f}
 *{box-sizing:border-box}
-body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--ivory);color:var(--text);line-height:1.5}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;overflow-x:hidden;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--ivory);color:var(--text);line-height:1.5}
 a{color:var(--plum)}
 header.top{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:12px;padding:12px 20px;background:rgba(250,247,242,.96);border-bottom:1px solid var(--line);backdrop-filter:blur(6px)}
 header.top img.logo{width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid var(--gold);background:#fff}
