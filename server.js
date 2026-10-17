@@ -487,6 +487,46 @@ async function tryAutoRegisterAurora(provider) {
     }
     return null;
   };
+  const minuteInbox = async () => {
+    try {
+      const h0 = { "User-Agent": randUA() };
+      const r0 = await fetch("https://www.minuteinbox.com/", { headers: h0, signal: AbortSignal.timeout(30000) });
+      const t0 = await r0.text().catch(() => "");
+      const m = t0.match(/(?:CSRF|csrf_token|csrf)\s*[:=]\s*["']([^"']+)["']/);
+      const csrf = m ? m[1] : "";
+      const cookies = (r0.headers.getSetCookie ? r0.headers.getSetCookie() : []).map((c) => c.split(";")[0]).join("; ");
+      const NAMES = ["hestia", "ayang", "sayang", "cinta", "rindu", "kasih", "manja", "bunga"];
+      const local = NAMES[Math.floor(Math.random() * NAMES.length)] + String(Date.now()).slice(-6);
+      const ajaxH = { ...h0, Referer: "https://www.minuteinbox.com/", Origin: "https://www.minuteinbox.com", "X-Requested-With": "XMLHttpRequest", Cookie: cookies, "Content-Type": "application/x-www-form-urlencoded" };
+      await new Promise((res) => setTimeout(res, 1000));
+      await fetch("https://www.minuteinbox.com/index/new-email/", { method: "POST", headers: ajaxH, body: "emailInput=" + encodeURIComponent(local) + "&format=json", signal: AbortSignal.timeout(30000) });
+      await new Promise((res) => setTimeout(res, 2000));
+      const r1 = await fetch("https://www.minuteinbox.com/index/index?csrf_token=" + encodeURIComponent(csrf), { headers: ajaxH, signal: AbortSignal.timeout(30000) });
+      const j1 = await r1.json().catch(() => null);
+      if (j1 && j1.email) return { email: j1.email, cookies, csrf, ajaxH, kind: "minuteinbox" };
+    } catch {}
+    return null;
+  };
+  const minuteInboxCode = async (inbox) => {
+    for (let i = 0; i < 12; i++) {
+      try {
+        const r = await fetch("https://www.minuteinbox.com/index/refresh", { headers: inbox.ajaxH, signal: AbortSignal.timeout(30000) });
+        const j = await r.json().catch(() => null);
+        const msgs = j && j.messages ? j.messages : (Array.isArray(j) ? j : []);
+        for (const m of msgs) {
+          const subj = String(m.subject || m.from || "");
+          if (!/(tokit|verif|code)/i.test(subj)) continue;
+          const er = await fetch("https://www.minuteinbox.com/index/email?id=" + m.id, { headers: inbox.ajaxH, signal: AbortSignal.timeout(30000) });
+          const ej = await er.json().catch(() => null);
+          const body = (ej && (ej.body || ej.text || ej.html || "")) + " " + (ej && ej.subject || "");
+          const code = (String(body).match(/\b(\d{4,6})\b/) || [])[1];
+          if (code) return code;
+        }
+      } catch {}
+      await new Promise((res) => setTimeout(res, 15000));
+    }
+    return null;
+  };
   const secmail = () => {
     const login = "hf" + randStr(10).toLowerCase();
     const domains = ["1secmail.com", "1secmail.net", "1secmail.org", "wwjmp.com", "esiix.com"];
@@ -561,7 +601,8 @@ async function tryAutoRegisterAurora(provider) {
     }
     return null;
   };
-  let inbox = secmail();
+  let inbox = await minuteInbox();
+  if (!inbox) inbox = secmail();
   if (!inbox) inbox = await mailtm();
   if (!inbox) return null;
   const tempEmail = inbox.email;
@@ -585,7 +626,7 @@ async function tryAutoRegisterAurora(provider) {
   console.log(`[aurora] verification status=${vr ? vr.status : "null"} ok=${!!(vr && vr.ok)}`);
   console.log(`[aurora] verification resp=${vr ? String(vr.text || "").slice(0, 200) : "null"}`);
   console.log(`[aurora] inbox=${inbox.email} kind=${inbox.kind}`);
-  const code = inbox.kind === "mailtm" ? await mailtmCode(inbox) : inbox.kind === "secmail" ? await secmailCode(inbox) : await guerrillaCode(inbox);
+  const code = inbox.kind === "minuteinbox" ? await minuteInboxCode(inbox) : inbox.kind === "mailtm" ? await mailtmCode(inbox) : inbox.kind === "secmail" ? await secmailCode(inbox) : await guerrillaCode(inbox);
   console.log(`[aurora] code found=${!!code}`);
   if (!code) return null;
   const regBodies = [
