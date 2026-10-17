@@ -183,7 +183,7 @@ async function doUserHarvest() {
     let html = `<div class="term-line">Total Proxy OK: ${out.proxyTotal != null ? out.proxyTotal : 0}</div>`;
     (out.keys || []).forEach((k, i) => {
       const st = k.live ? `<span class="term-live">Live</span>` : `<span class="term-dead">Mati</span>`;
-      if (k.live) html += `<div class="term-line term-key"><div>${i + 1} -${st}-</div><div>Api key : ${esc(k.key || "")}</div><div>Token/Credit : ${k.credit != null ? esc(k.credit) : "Tidak dinyatakan"}</div></div>`;
+      if (k.live) html += `<div class="term-line term-key"><div>${i + 1} -${st}-</div><div>Api key : <span class="term-keyval">${esc(k.key || "")}</span></div><div>Token/Credit : ${k.credit != null ? esc(k.credit) : "Tidak dinyatakan"}</div></div>`;
       else html += `<div class="term-line term-key"><div>${i + 1} -${st}-</div><div>Tidak dapat Di pakai</div></div>`;
     });
     proc.innerHTML = html;
