@@ -196,16 +196,16 @@ app.get("/auth/google/callback", async (req, res) => {
   try {
     const raw = req.headers.cookie || "";
     const stateCookie = (raw.match(/(?:^|;\s*)oauth_state=([^;]+)/) || [])[1];
-    if (!req.query.code || !req.query.state || req.query.state !== decodeURIComponent(stateCookie || "")) { console.error("[oauth] state mismatch", { hasCode: Boolean(req.query.code), hasState: Boolean(req.query.state), hasCookie: Boolean(stateCookie) }); return res.redirect("/?oauth=error"); }
+    if (!req.query.code || !req.query.state || req.query.state !== decodeURIComponent(stateCookie || "")) return res.redirect("/?oauth=error");
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ code: req.query.code, client_id: GOOGLE_CLIENT_ID, client_secret: GOOGLE_CLIENT_SECRET, redirect_uri: GOOGLE_REDIRECT_URI, grant_type: "authorization_code" }),
     });
     const tokens = await tokenRes.json();
-    if (!tokens.access_token) { console.error("[oauth] token exchange failed", { status: tokenRes.status, error: tokens.error, error_description: tokens.error_description }); return res.redirect("/?oauth=error"); }
+    if (!tokens.access_token) return res.redirect("/?oauth=error");
     const meRes = await fetch("https://openidconnect.googleapis.com/v1/userinfo", { headers: { Authorization: `Bearer ${tokens.access_token}` } });
     const me = await meRes.json();
-    if (!me.email) { console.error("[oauth] userinfo failed", { status: meRes.status }); return res.redirect("/?oauth=error"); }
+    if (!me.email) return res.redirect("/?oauth=error");
     const isAdmin = ADMIN_EMAILS.includes(String(me.email).toLowerCase()) ? 1 : 0;
     let user = db.prepare("SELECT * FROM users WHERE email=?").get(me.email);
     if (!user) {
@@ -217,7 +217,7 @@ app.get("/auth/google/callback", async (req, res) => {
     }
     res.cookie("hestia_session", signSession(user.id), { httpOnly: true, sameSite: "lax", path: "/", maxAge: 30 * 24 * 3600 * 1000 });
     res.redirect("/");
-  } catch (e) { console.error("[oauth] callback exception", e && e.message); res.redirect("/?oauth=error"); }
+  } catch (e) { res.redirect("/?oauth=error"); }
 });
 app.post("/api/logout", (req, res) => {
   res.clearCookie("hestia_session", { path: "/" });
@@ -420,6 +420,65 @@ app.put("/api/admin/settings", requireAdmin, (req, res) => {
 app.get("/api/admin/harvest-logs", requireAdmin, (req, res) => {
   const rows = db.prepare("SELECT hl.*, p.brand_name AS brand, u.email AS user_email FROM harvest_logs hl LEFT JOIN providers p ON p.id=hl.provider_id LEFT JOIN users u ON u.id=hl.user_id ORDER BY hl.created_at DESC LIMIT 200").all();
   res.json({ ok: true, logs: rows });
+});
+
+
+// ---------- OpenAI-compatible gateway (Path 1: HestiaFlow key + Base URL) ----------
+// NEVER exposes upstream identity/credentials. Forwarding is server-side only.
+function gatewayAuth(req) {
+  const h = req.headers.authorization || "";
+  const m = h.match(/^Bearer\s+(.+)$/i);
+  if (!m) return null;
+  return db.prepare("SELECT * FROM api_keys WHERE key_value=? AND status='active'").get(m[1].trim()) || null;
+}
+function gatewayKeyModels(key) {
+  let models = [];
+  try { models = JSON.parse(key.models_json || "[]"); } catch { models = []; }
+  if (!models.length && key.provider_id) {
+    const p = db.prepare("SELECT model_list_json FROM providers WHERE id=?").get(key.provider_id);
+    if (p) { try { models = JSON.parse(p.model_list_json || "[]"); } catch { models = []; } }
+  }
+  return models;
+}
+app.get("/v1/models", (req, res) => {
+  const key = gatewayAuth(req);
+  if (!key) return res.status(401).json({ error: { message: "Incorrect API key provided. You can find your HestiaFlow API key at Halaman Pengguna.", type: "invalid_request_error", param: null, code: "invalid_api_key" } });
+  const models = gatewayKeyModels(key);
+  const now = Math.floor(Date.now() / 1000);
+  res.json({ object: "list", data: models.map((id) => ({ id, object: "model", created: now, owned_by: "hestiaflow" })) });
+});
+app.post("/v1/chat/completions", async (req, res) => {
+  const key = gatewayAuth(req);
+  if (!key) return res.status(401).json({ error: { message: "Incorrect API key provided.", type: "invalid_request_error", param: null, code: "invalid_api_key" } });
+  const { model, messages, stream } = req.body || {};
+  if (!model || !Array.isArray(messages) || !messages.length) return res.status(400).json({ error: { message: "model and messages are required.", type: "invalid_request_error", param: null, code: "invalid_request" } });
+  if (stream) return res.status(400).json({ error: { message: "Streaming is not supported yet. Send stream:false.", type: "invalid_request_error", param: "stream", code: "streaming_unsupported" } });
+  const allowed = gatewayKeyModels(key);
+  if (allowed.length && !allowed.includes(model)) return res.status(404).json({ error: { message: `Model '${model}' is not included in this API key.`, type: "invalid_request_error", param: "model", code: "model_not_found" } });
+  const provider = key.provider_id ? db.prepare("SELECT * FROM providers WHERE id=?").get(key.provider_id) : null;
+  let upstreamUrl = provider ? provider.upstream_url : null;
+  let upstreamKey = provider ? provider.upstream_api_key : null;
+  if (upstreamUrl && !upstreamKey && provider) {
+    const w = db.prepare("SELECT * FROM workers WHERE provider_id=? AND status='active' AND upstream_api_key IS NOT NULL ORDER BY id LIMIT 1").get(provider.id);
+    if (w) upstreamKey = w.upstream_api_key;
+  }
+  if (!upstreamUrl || !upstreamKey) return res.status(502).json({ error: { message: "Upstream provider not configured. Operator must configure the provider upstream (Base URL + API key) in Panel Admin.", type: "upstream_error", param: null, code: "upstream_not_configured" } });
+  try {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 60000);
+    const r = await fetch(upstreamUrl.replace(/\/$/, "") + "/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${upstreamKey}` },
+      body: JSON.stringify(req.body),
+      signal: ctl.signal,
+    });
+    clearTimeout(t);
+    const data = await r.json().catch(() => ({}));
+    return res.status(r.status).json(data);
+  } catch (e) {
+    console.error("[gateway] chat forward failed:", e && e.message);
+    return res.status(502).json({ error: { message: "Upstream request failed.", type: "upstream_error", param: null, code: "upstream_request_failed" } });
+  }
 });
 
 // SPA fallback
