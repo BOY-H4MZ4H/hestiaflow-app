@@ -510,6 +510,13 @@ app.get("/api/public/providers", (req, res) => {
   const rows = db.prepare("SELECT * FROM providers ORDER BY tier_id, sort_order").all();
   res.json({ ok: true, providers: rows.map(publicProvider) });
 });
+app.get("/api/public/providers/:id/models", (req, res) => {
+  const p = db.prepare("SELECT * FROM providers WHERE id=?").get(req.params.id);
+  if (!p) return res.status(404).json({ ok: false, error: "provider_not_found" });
+  let models = [];
+  try { models = JSON.parse(p.model_list_json || "[]"); } catch { models = []; }
+  res.json({ ok: true, providerId: p.id, brand: p.brand_name, modelCount: p.model_count, models });
+});
 app.get("/api/public/tiers", (req, res) => {
   const tiers = db.prepare("SELECT * FROM tiers ORDER BY sort_order").all().map((t) => ({
     id: t.id, slug: t.slug, name: t.name, audienceLabel: t.audience_label, badge: t.badge, maxModels: t.max_models,
