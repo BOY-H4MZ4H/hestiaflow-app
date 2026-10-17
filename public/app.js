@@ -45,6 +45,13 @@ function switchTab(t) { adminTab = t; if (t === "admin") loadAdmin(); render(); 
 function switchSection(s) { adminSection = s; renderAdminSections(); }
 
 const TIER_PRICE = { plus: { amount: "Rp 5.000", dur: "3 Hari" }, pro: { amount: "Rp 8.000", dur: "1 Minggu" }, premium: { amount: "Rp 15.000", dur: "2 Minggu" } };
+function brandLogo(brand) {
+  const b = String(brand || "").toLowerCase();
+  if (b === "luna") return `<svg viewBox="0 0 48 48" width="32" height="32"><circle cx="24" cy="24" r="14" fill="#e8d9a0"/><circle cx="19" cy="20" r="3" fill="#c9a227" opacity=".55"/><circle cx="28" cy="27" r="2" fill="#c9a227" opacity=".55"/><circle cx="22" cy="30" r="1.5" fill="#c9a227" opacity=".55"/><ellipse cx="24" cy="24" rx="20" ry="7" fill="none" stroke="#d4af37" stroke-width="1.2" transform="rotate(-20 24 24)"/><circle cx="8" cy="10" r="1.5" fill="#e8d9a0"/><circle cx="40" cy="12" r="1" fill="#e8d9a0"/><circle cx="38" cy="36" r="1.2" fill="#e8d9a0"/><circle cx="10" cy="38" r="1" fill="#e8d9a0"/></svg>`;
+  if (b === "aurora") return `<svg viewBox="0 0 48 48" width="32" height="32"><path d="M4 18 Q14 8 24 16 T44 12" fill="none" stroke="#e8d9a0" stroke-width="3" stroke-linecap="round"/><path d="M4 24 Q14 14 24 22 T44 18" fill="none" stroke="#d9a8d9" stroke-width="3" stroke-linecap="round"/><path d="M4 30 Q14 22 24 28 T44 24" fill="none" stroke="#d4af37" stroke-width="2.5" stroke-linecap="round"/><path d="M4 40 L14 30 L22 38 L32 28 L44 40 Z" fill="#d4af37" opacity=".35"/><circle cx="10" cy="8" r="1.2" fill="#e8d9a0"/><circle cx="38" cy="6" r="1" fill="#e8d9a0"/><circle cx="30" cy="10" r=".8" fill="#e8d9a0"/></svg>`;
+  if (b === "nova") return `<svg viewBox="0 0 48 48" width="32" height="32"><circle cx="24" cy="24" r="9" fill="#e8d9a0" opacity=".35"/><circle cx="24" cy="24" r="5" fill="#fff8e1"/><path d="M24 3 L26.5 18 L24 24 L21.5 18 Z" fill="#d4af37"/><path d="M24 45 L26.5 30 L24 24 L21.5 30 Z" fill="#d4af37"/><path d="M3 24 L18 21.5 L24 24 L18 26.5 Z" fill="#d4af37"/><path d="M45 24 L30 21.5 L24 24 L30 26.5 Z" fill="#d4af37"/><path d="M9 9 L19 19 L21 21 L19 19 Z" fill="#e8d9a0"/><path d="M39 9 L29 19 L27 21 L29 19 Z" fill="#e8d9a0"/><path d="M9 39 L19 29 L21 27 L19 29 Z" fill="#e8d9a0"/><path d="M39 39 L29 29 L27 27 L29 29 Z" fill="#e8d9a0"/><circle cx="10" cy="16" r="1.2" fill="#e8d9a0"/><circle cx="38" cy="14" r="1" fill="#e8d9a0"/><circle cx="36" cy="34" r="1.2" fill="#e8d9a0"/><circle cx="12" cy="34" r="1" fill="#e8d9a0"/></svg>`;
+  return `<svg viewBox="0 0 48 48" width="32" height="32"><path d="M16 11 L20 5 L24 9 L28 5 L32 11 L32 14 L16 14 Z" fill="#d4af37"/><path d="M24 17 L27 23 L34 23 L28 28 L30 35 L24 31 L18 35 L20 28 L14 23 L21 23 Z" fill="#e8d9a0" stroke="#d4af37" stroke-width="1"/><path d="M24 2 L24 6 M8 24 L12 24 M36 24 L40 24 M12 12 L15 15 M36 12 L33 15" stroke="#d4af37" stroke-width="1.2" stroke-linecap="round"/><path d="M8 36 L9 39 L12 40 L9 41 L8 44 L7 41 L4 40 L7 39 Z" fill="#e8d9a0"/><path d="M40 34 L41 36.5 L43.5 37.5 L41 38.5 L40 41 L39 38.5 L36.5 37.5 L39 36.5 Z" fill="#e8d9a0"/></svg>`;
+}
 function tierShowcase() {
   return `<div class="section"><h2>Pilihan Paket Tier</h2>
   <div class="grid tiers">${TIERS.map((t) => `
@@ -52,7 +59,7 @@ function tierShowcase() {
       <div class="tier-ribbon" onclick="scrollToVoucher()">Pesan</div>
       <div class="tier-head"><span class="badge ${t.slug === "gratis" ? "gratis" : t.slug === "plus" ? "plus" : t.slug === "pro" ? "pro" : "premium"}">${esc(t.badge)}</span>${TIER_PRICE[t.slug] ? `<div class="tier-price"><div class="price">${TIER_PRICE[t.slug].amount}</div><div class="price-dur">${TIER_PRICE[t.slug].dur}</div></div>` : ""}</div>
       ${(t.providers || []).map((p) => `
-        <div class="brand"><div class="medal ${t.slug === "premium" ? "gold" : ""}">${esc(p.brand.slice(0, 1))}</div>
+        <div class="brand"><div class="medal ${t.slug === "premium" ? "gold" : ""}">${brandLogo(p.brand)}</div>
         <div><h3>${esc(p.brand)}</h3><p>${esc(p.tagline || "")}</p></div></div>
         <div><span class="chip">${p.modelCount} model</span><span class="chip">${esc(p.creditNote || "")}</span></div>
       `).join("") || `<p class="muted">Belum ada provider di tier ini.</p>`}
