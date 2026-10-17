@@ -517,11 +517,13 @@ async function tryAutoRegister(provider, tempEmail, tempPassword) {
   return { upstreamApiKey: token, upstreamBaseUrl: base };
 }
 
+const TIER_HARVEST_LIMIT = { gratis: 2, plus: 10, pro: 20, premium: 50 };
 async function doHarvest({ userId, providerId, count }) {
   const provider = db.prepare("SELECT * FROM providers WHERE id=?").get(providerId);
   if (!provider) throw new Error("provider_not_found");
   if (!Number.isInteger(count) || count < 1 || count > 50) throw new Error("count_must_be_1_to_50");
   const tier = db.prepare("SELECT * FROM tiers WHERE id=?").get(provider.tier_id);
+  if (userId != null && tier && TIER_HARVEST_LIMIT[tier.slug] != null) { const limit = TIER_HARVEST_LIMIT[tier.slug]; const existing = db.prepare("SELECT COUNT(*) AS c FROM api_keys WHERE user_id=? AND tier_id=?").get(userId, tier.id).c; if (existing + count > limit) throw new Error(`Limit Tier ${tier.name || tier.slug}: maks ${limit} akun. Kamu sudah punya ${existing} akun.`); }
   // Resolve models: endpoint (if operator key) -> configured list -> honest empty.
   let models = null, source = "none";
   const fetched = await fetchProviderModels(provider);
