@@ -83,11 +83,10 @@ function render() {
 
 async function loadUser() {
   try {
-    const provOpts = TIERS.flatMap((t) => (t.providers || []).map((p) => `<option value="${p.id}">${esc(t.name)} · ${esc(p.brand)} (${p.modelCount} model)</option>`)).join("");
     $("#userRoot").innerHTML = `
     <div class="section"><h2>Panen Akun</h2><p class="sub">Panen akun provider — tiap panen membuat 1 akun baru dengan email sementara yang berbeda-beda. Email & sandi tidak pernah ditampilkan. Pilih bebas 1–50 (maks 50).</p>
       <div class="card"><div class="row">
-        <div><label>Provider</label><select id="harvestProvider" onchange="updateModelBox()">${provOpts}</select></div>
+        <div><label>Provider</label><div id="harvestProviderSidebar" class="tier-sidebar"></div></div>
         <div><label>Jumlah akun (1–50)</label><div class="stepper">
           <button type="button" onclick="stepCount(-1)">−</button>
           <input id="harvestCount" type="number" min="1" max="50" value="1" oninput="clampCount(this)" />
@@ -113,6 +112,7 @@ async function loadUser() {
   }'</pre></div>
       <div style="margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="copyCurlExample(this)">Salin</button></div>
     </div>`;
+  renderHarvestSidebar();
   updateModelBox();
   } catch (e) { $("#userRoot").innerHTML = `<p class="muted">Gagal memuat: ${esc(e.message)}</p>`; }
 }
@@ -155,10 +155,25 @@ async function deleteMyKey(id, btn) {
 }
 function clampCount(el) { let v = parseInt(el.value, 10); if (isNaN(v)) v = 1; el.value = Math.max(1, Math.min(50, v)); }
 function stepCount(d) { const el = $("#harvestCount"); if (!el) return; el.value = Math.max(1, Math.min(50, (parseInt(el.value, 10) || 1) + d)); }
+let selectedHarvestProviderId = null;
+function renderHarvestSidebar() {
+  const el = $("#harvestProviderSidebar"); if (!el) return;
+  const short = { gratis: "Gratis", plus: "Plus", pro: "Pro", premium: "Prem" };
+  const items = [];
+  TIERS.forEach((t) => (t.providers || []).forEach((p) => items.push({ tier: t, p })));
+  if (!items.length) { el.innerHTML = `<p class="muted">Belum ada provider.</p>`; return; }
+  if (!selectedHarvestProviderId || !items.some((x) => x.p.id === selectedHarvestProviderId)) selectedHarvestProviderId = items[0].p.id;
+  el.innerHTML = items.map((x) => `<div class="tier-side-opt${x.p.id === selectedHarvestProviderId ? " sel" : ""}" data-pid="${x.p.id}" onclick="selectHarvestProvider(${x.p.id})">${esc(short[x.tier.slug] || x.tier.name)} • ${x.p.modelCount} Model</div>`).join("");
+}
+function selectHarvestProvider(pid) {
+  selectedHarvestProviderId = pid;
+  document.querySelectorAll(".tier-side-opt").forEach((d) => d.classList.toggle("sel", Number(d.dataset.pid) === pid));
+  updateModelBox();
+}
 async function updateModelBox() {
   const box = $("#modelBox"); if (!box) return;
-  const sel = $("#harvestProvider"); if (!sel) return;
-  const pid = sel.value;
+  const pid = selectedHarvestProviderId;
+  if (!pid) return;
   try {
     const r = await api("/api/public/providers/" + pid + "/models");
     const models = r.models || [];
@@ -167,7 +182,7 @@ async function updateModelBox() {
 }
 async function doUserHarvest() {
   const btn = $("#harvestBtn"); btn.disabled = true;
-  const providerId = Number($("#harvestProvider").value), count = Math.max(1, Math.min(50, parseInt($("#harvestCount").value, 10) || 1));
+  const providerId = Number(selectedHarvestProviderId), count = Math.max(1, Math.min(50, parseInt($("#harvestCount").value, 10) || 1));
   const proc = $("#harvestProc"); proc.style.display = "block";
   proc.innerHTML = `<div class="term-line"><span class="cute-spin"></span> Lagi Proses...</div><div class="term-line">Scrap Proxy...</div>`;
   $("#harvestProg").style.width = "0%"; $("#harvestProgText").textContent = "";
