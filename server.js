@@ -39,15 +39,14 @@ CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 // ---------- seed ----------
 const AURORA_MODELS = ["claude-fable-5","claude-haiku-4-5-20251001","claude-opus-4-6","claude-opus-4.6","claude-opus-5","claude-sonnet-4-6","claude-sonnet-4.6","DeepSeek-V4-Flash","DeepSeek-V4-pro","doubao-seed-2-0-lite-260215","doubao-seedance-2-0-260128","gemini-2.5-flash","gemini-2.5-flash-image","gemini-2.5-flash-lite","gemini-3-flash-preview","gemini-3-pro-image","gemini-3-pro-image-preview","gemini-3.1-pro-preview","gemini-3.8-flash","GLM-5","gpt-5.4","gpt-5.6-luna","gpt-image-2","imagen-4.0-generate-001","Kimi-K2.5","kimi-k3","MiniMax-H3","MiniMax-M2.7","qwen3.5-plus","qwen3.6-plus"];
 function seed() {
-  const tierCount = db.prepare("SELECT COUNT(*) c FROM tiers").get().c;
-  if (tierCount > 0) return;
-  const insTier = db.prepare("INSERT INTO tiers (slug,name,audience_label,badge,max_models,sort_order) VALUES (?,?,?,?,?,?)");
-  // Migrasi: chip credit Luna dipendekin (tulisan panjang dihilangin) untuk DB yang sudah ada.
+  // Migrasi (jalan tiap startup, walau DB sudah ada isi): badge + chip credit dipendekin.
   db.prepare("UPDATE providers SET credit_note=? WHERE brand_name=?").run("Always-free BETA", "Luna");
-  // Migrasi: badge pendek (tulisan panjang dihilangin) untuk DB yang sudah ada.
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("TIER GRATIS", "gratis");
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("TIER PLUS", "plus");
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("★ TIER PREMIUM", "premium");
+  const tierCount = db.prepare("SELECT COUNT(*) c FROM tiers").get().c;
+  if (tierCount > 0) return;
+  const insTier = db.prepare("INSERT INTO tiers (slug,name,audience_label,badge,max_models,sort_order) VALUES (?,?,?,?,?,?)");
   const g = insTier.run("gratis", "Gratis", "KHUSUS PENGGUNA GRATIS", "TIER GRATIS", 2, 1).lastInsertRowid;
   const p = insTier.run("plus", "Plus", "UNTUK PENGGUNA PLUS / BERBAYAR", "TIER PLUS", null, 2).lastInsertRowid;
   const pr = insTier.run("premium", "Premium", "PALING MAHAL", "★ TIER PREMIUM", null, 3).lastInsertRowid;
