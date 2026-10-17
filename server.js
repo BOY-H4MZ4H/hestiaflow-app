@@ -145,6 +145,87 @@ async function fetchProviderModels(p) {
 function logHarvest(userId, providerId, message) {
   db.prepare("INSERT INTO harvest_logs (user_id,provider_id,message) VALUES (?,?,?)").run(userId, providerId, message);
 }
+
+// Auto-register a real provider account (server-side, no admin config).
+// Tries generic signup/login/key endpoints against the provider's upstream_url
+// (operator-configured in DB). Returns { upstreamApiKey, upstreamBaseUrl } or null.
+// NEVER logs or returns upstream credentials. Falls back to null on any failure
+// (CAPTCHA, email verification, unknown flow) — caller keeps NULL upstream key.
+async function tryAutoRegister(provider, tempEmail, tempPassword) {
+  const base = (provider.upstream_url || "").replace(/\/$/, "");
+  if (!base) return null;
+  const tryFetch = async (url, opts, ms) => {
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), ms || 15000);
+      const r = await fetch(url, { ...opts, signal: ctl.signal });
+      clearTimeout(t);
+      const txt = await r.text().catch(() => "");
+      let j = null;
+      try { j = JSON.parse(txt); } catch {}
+      return { ok: r.ok, status: r.status, json: j, text: txt };
+    } catch { return null; }
+  };
+  // 1) Signup (try common endpoints).
+  const signupBodies = [
+    { email: tempEmail, password: tempPassword, name: "HestiaFlow" },
+    { email: tempEmail, password: tempPassword, username: tempEmail.split("@")[0] },
+    { email: tempEmail, password: tempPassword },
+  ];
+  const signupPaths = ["/api/auth/register", "/api/register", "/auth/signup", "/api/auth/signup", "/api/users", "/api/v1/auth/register"];
+  let token = null;
+  for (const p of signupPaths) {
+    for (const b of signupBodies) {
+      const r = await tryFetch(base + p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
+      if (r && r.ok && r.json) {
+        token = r.json.token || r.json.access_token || r.json.accessToken || r.json.api_key || r.json.apiKey || r.json.key || null;
+        if (r.json.user && r.json.user.api_key) token = r.json.user.api_key;
+        if (token) break;
+      }
+      if (r && (r.status === 409 || r.status === 422)) break; // already exists / validation — try next path
+    }
+    if (token) break;
+  }
+  // 2) Login (if signup did not return a token/key).
+  if (!token) {
+    const loginPaths = ["/api/auth/login", "/api/login", "/auth/login", "/api/v1/auth/login"];
+    for (const p of loginPaths) {
+      const r = await tryFetch(base + p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: tempEmail, password: tempPassword }) });
+      if (r && r.ok && r.json) {
+        token = r.json.token || r.json.access_token || r.json.accessToken || r.json.api_key || r.json.apiKey || r.json.key || null;
+        if (r.json.user && r.json.user.api_key) token = r.json.user.api_key;
+        if (token) break;
+      }
+    }
+  }
+  if (!token) return null;
+  // 3) If token looks like a session token (not an API key), try to create/list an API key.
+  // Heuristic: API keys for these gateways are usually long; session tokens are JWTs.
+  // Try key endpoints with the token as Bearer; if one returns a key, use it.
+  const isJwt = token.split(".").length === 3;
+  if (isJwt) {
+    const keyPaths = ["/api/api-keys", "/api/keys", "/api/v1/api-keys", "/api/auth/api-key"];
+    for (const p of keyPaths) {
+      const r = await tryFetch(base + p, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ name: "hestiaflow" }) });
+      if (r && r.ok && r.json) {
+        const k = r.json.api_key || r.json.apiKey || r.json.key || (r.json.data && (r.json.data.api_key || r.json.data.key)) || null;
+        if (k) return { upstreamApiKey: k, upstreamBaseUrl: base };
+      }
+      const g = await tryFetch(base + p, { method: "GET", headers: { Authorization: `Bearer ${token}` } });
+      if (g && g.ok && g.json) {
+        const arr = g.json.data || g.json.keys || g.json.api_keys || [];
+        if (Array.isArray(arr) && arr.length) {
+          const k = arr[0].api_key || arr[0].apiKey || arr[0].key || arr[0].value || null;
+          if (k) return { upstreamApiKey: k, upstreamBaseUrl: base };
+        }
+      }
+    }
+    return null; // JWT but no API key retrievable — cannot use session token as gateway key.
+  }
+  // Non-JWT token: treat as the API key itself.
+  return { upstreamApiKey: token, upstreamBaseUrl: base };
+}
+
 async function doHarvest({ userId, providerId, count }) {
   const provider = db.prepare("SELECT * FROM providers WHERE id=?").get(providerId);
   if (!provider) throw new Error("provider_not_found");
@@ -169,8 +250,12 @@ async function doHarvest({ userId, providerId, count }) {
     const credit = provider.default_credit != null ? provider.default_credit : null;
     const k = db.prepare("INSERT INTO api_keys (user_id,provider_id,tier_id,key_value,key_prefix,credit,models_json,model_source,model_count) VALUES (?,?,?,?,?,?,?,?,?)")
       .run(userId, providerId, provider.tier_id, keyValue, keyPrefix, credit, JSON.stringify(models), source, provider.model_count);
-    db.prepare("INSERT INTO harvested_accounts (api_key_id,user_id,provider_id,tier_id,temp_email,temp_password,upstream_api_key,upstream_base_url) VALUES (?,?,?,?,?,?,NULL,NULL)")
-      .run(k.lastInsertRowid, userId, providerId, provider.tier_id, tempEmail, tempPassword);
+    let auto = null;
+    try { auto = await tryAutoRegister(provider, tempEmail, tempPassword); } catch { auto = null; }
+    if (auto) console.log(`[harvest] auto-register OK provider=${provider.id} key_id=${k.lastInsertRowid}`);
+    else console.log(`[harvest] auto-register unavailable provider=${provider.id} key_id=${k.lastInsertRowid} (fallback: no upstream key)`);
+    db.prepare("INSERT INTO harvested_accounts (api_key_id,user_id,provider_id,tier_id,temp_email,temp_password,upstream_api_key,upstream_base_url) VALUES (?,?,?,?,?,?,?,?)")
+      .run(k.lastInsertRowid, userId, providerId, provider.tier_id, tempEmail, tempPassword, auto ? auto.upstreamApiKey : null, auto ? auto.upstreamBaseUrl : null);
     const msg = `Panen Akun ${i} Berhasil.`;
     logHarvest(userId, providerId, msg);
     logs.push(msg);
@@ -455,9 +540,15 @@ app.post("/v1/chat/completions", async (req, res) => {
   // Streaming (SSE passthrough) — automatic, no admin setting needed.
   const allowed = gatewayKeyModels(key);
   if (allowed.length && !allowed.includes(model)) return res.status(404).json({ error: { message: `Model '${model}' is not included in this API key.`, type: "invalid_request_error", param: "model", code: "model_not_found" } });
+  // Upstream resolution (server-side only, never exposed):
+  // 1) This HestiaFlow key's own harvested account (auto-registered upstream key).
+  // 2) Provider-level upstream (operator-configured).
+  // 3) Active worker key for this provider (provider URL + worker key).
   const provider = key.provider_id ? db.prepare("SELECT * FROM providers WHERE id=?").get(key.provider_id) : null;
-  let upstreamUrl = provider ? provider.upstream_url : null;
-  let upstreamKey = provider ? provider.upstream_api_key : null;
+  let upstreamUrl = null, upstreamKey = null;
+  const ha = db.prepare("SELECT upstream_api_key, upstream_base_url FROM harvested_accounts WHERE api_key_id=? AND upstream_api_key IS NOT NULL ORDER BY id DESC LIMIT 1").get(key.id);
+  if (ha) { upstreamKey = ha.upstream_api_key; upstreamUrl = ha.upstream_base_url || (provider ? provider.upstream_url : null); }
+  if ((!upstreamUrl || !upstreamKey) && provider) { upstreamUrl = upstreamUrl || provider.upstream_url; upstreamKey = upstreamKey || provider.upstream_api_key; }
   if (upstreamUrl && !upstreamKey && provider) {
     const w = db.prepare("SELECT * FROM workers WHERE provider_id=? AND status='active' AND upstream_api_key IS NOT NULL ORDER BY id LIMIT 1").get(provider.id);
     if (w) upstreamKey = w.upstream_api_key;
