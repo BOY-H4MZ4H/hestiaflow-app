@@ -30,7 +30,7 @@ main{max-width:1080px;margin:0 auto;padding:24px 16px 80px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:0 6px 24px rgba(61,27,61,.06)}
 .card.tier{border-top:5px solid var(--plum);position:relative}
 .card.tier.premium{border-top-color:var(--gold);background:linear-gradient(180deg,#fffdf4,#fff)}
-.badge{display:inline-flex;align-items:center;min-height:2.6em;line-height:1.3;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:800;letter-spacing:.5px}
+.badge{display:inline-flex;align-items:center;min-height:3.4em;line-height:1.3;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:800;letter-spacing:.5px}
 .badge.gratis{background:#efe6f2;color:var(--plum);border:1px solid #d9c6e0}
 .badge.plus{background:#eef2ff;color:#2a3a7a;border:1px solid #c6d0f5}
 .badge.premium{background:linear-gradient(135deg,var(--gold),var(--gold2));color:#2a1a00}
@@ -88,4 +88,4 @@ footer img{width:30px;height:30px;border-radius:50%;object-fit:cover;border:1.5p
 .term-keyval{color:var(--gold-soft);font-weight:700}
 .term-dead{color:#d9a8d9;font-weight:700}
 
-.tier-aud{min-height:2.6em}
+.tier-aud{min-height:3em}
