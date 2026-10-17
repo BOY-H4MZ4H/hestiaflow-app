@@ -86,6 +86,7 @@ function seed() {
   db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('base_url',?)").run(GATEWAY_BASE_URL);
 }
 seed();
+try { require("./bot.js").startBot(db); } catch (e) { console.error("[bot] start err", e.message); }
 // Sync provider upstream URLs from env vars (PROVIDER_<BRAND>_UPSTREAM_URL).
 // Operator config only — values live in Railway env, never in public code.
 for (const [k, v] of Object.entries(process.env)) {
