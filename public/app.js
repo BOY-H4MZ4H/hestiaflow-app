@@ -128,8 +128,8 @@ async function loadUser() {
   }'</pre></div>
       <h3 style="margin-top:16px">ENDPOINTS</h3>
       <div class="endpoint-list">
-        <div class="endpoint-row"><span class="endpoint-method post">POST</span><span class="endpoint-path">/v1/chat/completions</span><span class="endpoint-desc">Chat completions</span><button class="btn btn-ghost btn-sm" onclick="copyEndpoint('https://hestiaflow-app-production.up.railway.app/v1/chat/completions', this)">Copy</button></div>
-        <div class="endpoint-row"><span class="endpoint-method get">GET</span><span class="endpoint-path">/v1/models</span><span class="endpoint-desc">List models</span><button class="btn btn-ghost btn-sm" onclick="copyEndpoint('https://hestiaflow-app-production.up.railway.app/v1/models', this)">Copy</button></div>
+        <div class="endpoint-row"><div class="endpoint-row-top"><span class="endpoint-method post">POST</span><span class="endpoint-path">/v1/chat/completions</span><button class="btn btn-ghost btn-sm" onclick="copyEndpoint('https://hestiaflow-app-production.up.railway.app/v1/chat/completions', this)">Copy</button></div><span class="endpoint-desc">Chat completions</span></div>
+        <div class="endpoint-row"><div class="endpoint-row-top"><span class="endpoint-method get">GET</span><span class="endpoint-path">/v1/models</span><button class="btn btn-ghost btn-sm" onclick="copyEndpoint('https://hestiaflow-app-production.up.railway.app/v1/models', this)">Copy</button></div><span class="endpoint-desc">List models</span></div>
       </div>
     </div>`;
   renderHarvestSidebar();
