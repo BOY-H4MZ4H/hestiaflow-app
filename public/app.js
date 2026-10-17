@@ -78,10 +78,12 @@ function render() {
     loadAdmin();
     return;
   }
-  app.innerHTML = hero + `<div id="userRoot"><p class="muted">Memuat Halaman Pengguna…</p></div>` + tierShowcase();
+  app.innerHTML = hero + `<div id="userRoot"><p class="muted">Memuat Halaman Pengguna…</p></div>` + tierShowcase() + voucherSection();
   loadUser();
 }
 
+function voucherSection() { return `<div class="section"><h2>Voucher</h2><p class="sub">Masukan Code Vocher Yang Di Beri Admin</p><div class="row" style="gap:8px"><input id="voucherCode" placeholder="Kode Vocher" style="flex:1" /><button class="btn btn-plum" onclick="redeemVoucher()">Tukar</button></div><p id="voucherMsg" class="muted"></p></div>`; }
+async function redeemVoucher() { const inp = $("#voucherCode"); const msg = $("#voucherMsg"); const code = inp ? inp.value.trim() : ""; if (!code) { if (msg) msg.textContent = "Masukan dulu kode vocher-nya."; return; } try { const r = await api("/api/voucher/redeem", { method: "POST", body: JSON.stringify({ code }) }); if (msg) msg.textContent = r.message || "Vocher berhasil ditukar."; } catch (e) { if (msg) msg.textContent = e.message; } }
 async function loadUser() {
   try {
     $("#userRoot").innerHTML = `
