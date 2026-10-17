@@ -46,15 +46,15 @@ async function handleUpdate(db, u) {
     if (payload.startsWith("hestiaflow_")) slug = payload.slice("hestiaflow_".length).toLowerCase();
     if (slug && TIER_PRICE[slug]) {
       db.prepare("INSERT OR REPLACE INTO bot_state (tg_user_id, last_tier_slug, updated_at) VALUES (?, ?, ?)").run(fromId, slug, new Date().toISOString());
-      await sendMsg(chatId, `Halo! Kamu mau pesan <b>Paket ${TIER_NAME[slug]}</b>.\n\n${tierInfo(slug)}\n\nKirim foto bukti pembayaran ke sini setelah bayar.`, true);
+      await sendMsg(chatId, `Assalamualaikum! Terima kasih sudah mampir. Kamu mau pesan <b>Paket ${TIER_NAME[slug]}</b> ya.\n\n${tierInfo(slug)}\n\nKirim foto bukti pembayaran ke sini setelah bayar.`, true);
     } else {
-      await sendMsg(chatId, `Halo! Ini bot <b>HestiaFlow</b>.\n\nPilih paket di web (klik tombol <b>Pesan</b> di kartu tier), lalu kembali ke sini untuk kirim bukti pembayaran.\n\nPerintah: /id (lihat ID Telegram kamu), /myorders (lihat pesananmu), /grup (link grup).`, true);
+      await sendMsg(chatId, `Assalamualaikum! Ada yang bisa aku bantu? Ini bot <b>HestiaFlow</b>.\n\nPilih paket di web (klik tombol <b>Pesan</b> di kartu tier), lalu kembali ke sini untuk kirim bukti pembayaran.\n\nPerintah: /id (lihat ID Telegram kamu), /myorders (lihat pesananmu), /grup (link grup).`, true);
     }
     return;
   }
   if (text === "/myorders") {
     const rows = db.prepare("SELECT id, tier_slug, status, voucher_code, created_at FROM bot_orders WHERE tg_user_id=? ORDER BY id DESC LIMIT 10").all(fromId);
-    if (!rows.length) { await sendMsg(chatId, "Kamu belum punya pesanan."); return; }
+    if (!rows.length) { await sendMsg(chatId, "Assalamualaikum! Kamu belum punya pesanan."); return; }
     const lines = rows.map((o) => `#${o.id} — ${TIER_NAME[o.tier_slug] || o.tier_slug} — ${o.status}${o.voucher_code ? ` — Vocher: <code>${o.voucher_code}</code>` : ""}`).join("\n");
     await sendMsg(chatId, `<b>Pesananmu:</b>\n${lines}`);
     return;
@@ -71,29 +71,29 @@ async function handleUpdate(db, u) {
       db.prepare("INSERT INTO vouchers (code, tier_slug, duration_days, used, created_at) VALUES (?, ?, ?, 0, ?)").run(code, o.tier_slug, days, new Date().toISOString());
       db.prepare("UPDATE bot_orders SET status='approved', voucher_code=?, decided_at=? WHERE id=?").run(code, o.tier_slug, new Date().toISOString(), orderId);
       await sendMsg(chatId, `Pesanan #${orderId} disetujui. Vocher dikirim ke user.`);
-      await sendMsg(o.tg_user_id, `Pembayaranmu disetujui! 🎉\n\nKode Vocher kamu: <code>${code}</code>\nPaket: <b>${TIER_NAME[o.tier_slug]}</b> (${(TIER_PRICE[o.tier_slug] || {}).dur || ""})\n\nRedeem kode ini di web HestiaFlow (section Voucher).`);
+      await sendMsg(o.tg_user_id, `Assalamualaikum! Kabar baik, pembayaranmu sudah disetujui! 🎉\n\nKode Vocher kamu: <code>${code}</code>\nPaket: <b>${TIER_NAME[o.tier_slug]}</b> (${(TIER_PRICE[o.tier_slug] || {}).dur || ""})\n\nRedeem kode ini di web HestiaFlow (section Voucher).`);
     } else {
       db.prepare("UPDATE bot_orders SET status='rejected', decided_at=? WHERE id=?").run(new Date().toISOString(), orderId);
       await sendMsg(chatId, `Pesanan #${orderId} ditolak.`);
-      await sendMsg(o.tg_user_id, `Maaf, pembayaran untuk pesanan #${orderId} ditolak. Hubungi Admin untuk info lebih lanjut.`);
+      await sendMsg(o.tg_user_id, `Mohon maaf, pembayaran untuk pesanan #${orderId} belum bisa kami setujui. Silakan hubungi Admin untuk info lebih lanjut ya.`);
     }
     return;
   }
   if (m.photo && m.photo.length) {
     const st = db.prepare("SELECT last_tier_slug FROM bot_state WHERE tg_user_id=?").get(fromId);
     const slug = st ? st.last_tier_slug : "";
-    if (!slug || !TIER_PRICE[slug]) { await sendMsg(chatId, "Klik tombol <b>Pesan</b> di web dulu (pilih paket), baru kirim bukti pembayaran ke sini."); return; }
+    if (!slug || !TIER_PRICE[slug]) { await sendMsg(chatId, "Mohon maaf, silakan klik tombol <b>Pesan</b> di web dulu (pilih paket), baru kirim bukti pembayaran ke sini ya."); return; }
     const photo = m.photo[m.photo.length - 1];
     const info = db.prepare("INSERT INTO bot_orders (tg_user_id, tg_username, tier_slug, photo_file_id, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)").run(fromId, username, slug, photo.file_id, new Date().toISOString());
     const orderId = Number(info.lastInsertRowid);
-    await sendMsg(chatId, `Bukti pembayaran diterima! Pesanan #${orderId} (${TIER_NAME[slug]}) sedang dicek Admin. Tunggu ya.`);
+    await sendMsg(chatId, `Terima kasih! Bukti pembayaranmu sudah kami terima. Pesanan #${orderId} (${TIER_NAME[slug]}) sedang dicek Admin. Mohon ditunggu ya.`);
     if (ADMIN_ID) {
       await sendMsg(ADMIN_ID, `Pesanan baru #${orderId}\nUser: @${username || "-"} (ID ${fromId})\nPaket: ${TIER_NAME[slug]} (${(TIER_PRICE[slug] || {}).amount})\n\nSetujui: /approve ${orderId}\nTolak: /reject ${orderId}`);
       await tg("sendPhoto", { chat_id: ADMIN_ID, photo: photo.file_id, caption: `Bukti pembayaran pesanan #${orderId} (@${username || "-"})` });
     }
     return;
   }
-  await sendMsg(chatId, `Halo! Pilih paket di web (klik tombol <b>Pesan</b>), lalu kirim foto bukti pembayaran ke sini.\n\nPerintah: /id, /myorders.`);
+  await sendMsg(chatId, `Assalamualaikum! Ada yang bisa aku bantu? Silakan pilih paket di web (klik tombol <b>Pesan</b>), lalu kirim foto bukti pembayaran ke sini ya.\n\nPerintah: /id, /myorders.`);
 }
 function startBot(db) {
   if (!TOKEN) { console.log("[bot] TELEGRAM_BOT_TOKEN not set, bot disabled."); return; }
