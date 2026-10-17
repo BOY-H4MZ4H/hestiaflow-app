@@ -46,7 +46,11 @@ main{max-width:1080px;margin:0 auto;padding:24px 16px 80px}
 .kv b{color:var(--text)}
 .keybox{background:#241228;color:#f5eeda;border-radius:12px;padding:12px 14px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;border:1px solid var(--gold)}
 .keybox .lbl{font-family:Inter,sans-serif;font-size:11px;letter-spacing:.6px;color:var(--gold-soft);text-transform:uppercase}
-.keybox .key-scroll{max-height:32px;overflow-y:auto;overflow-x:hidden;word-break:break-all;line-height:1.4}
+.keybox .key-list-scroll{max-height:110px;overflow-y:auto;overflow-x:hidden}
+.keybox .key-row{display:block;padding:6px 0;border-top:1px solid rgba(245,238,218,.15)}
+.keybox .key-row:first-child{border-top:0;padding-top:2px}
+.keybox .key-row-tag{display:block;font-family:Inter,sans-serif;font-size:11px;letter-spacing:.6px;color:var(--gold-soft);text-transform:uppercase}
+.keybox .key-row-val{display:block;word-break:break-all}
 .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}
 .tab{padding:9px 16px;border-radius:999px;border:1.5px solid var(--plum);background:#fff;color:var(--plum);font-weight:700;cursor:pointer}
 .tab.active{background:var(--plum);color:#fff}
