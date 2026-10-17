@@ -114,7 +114,7 @@ function getSessionUser(req) {
   const m = raw.match(/(?:^|;\s*)hestia_session=([^;]+)/);
   const uid = verifySession(m ? decodeURIComponent(m[1]) : null);
   if (!uid) return null;
-  return db.prepare("SELECT id,email,name,avatar,is_admin,created_at,COALESCE(tier_slug,'gratis') AS tier_slug FROM users WHERE id=?").get(uid) || null;
+  const u = db.prepare("SELECT id,email,name,avatar,is_admin,created_at,COALESCE(tier_slug,'gratis') AS tier_slug,tier_expires_at FROM users WHERE id=?").get(uid); if (!u) return null; u.tier_slug = effectiveTierSlug(u); return u;
 }
 function requireAuth(req, res, next) {
   const u = getSessionUser(req);
@@ -520,6 +520,9 @@ async function tryAutoRegister(provider, tempEmail, tempPassword) {
 
 const TIER_HARVEST_LIMIT = { gratis: 2, plus: 10, pro: 20, premium: 50 };
 const TIER_RANK = { gratis: 0, plus: 1, pro: 2, premium: 3 };
+const VOUCHER_DAYS = { plus: 3, pro: 7, premium: 14 };
+function effectiveTierSlug(u) { if (!u) return "gratis"; if (u.tier_expires_at && new Date(u.tier_expires_at) < new Date()) return "gratis"; return u.tier_slug || "gratis"; }
+function genVoucherCode() { const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; let s = ""; for (let i = 0; i < 16; i++) s += chars[crypto.randomInt(chars.length)]; return s.slice(0, 4) + "-" + s.slice(4, 8) + "-" + s.slice(8, 12) + "-" + s.slice(12, 16); }
 async function doHarvest({ userId, providerId, count }) {
   const provider = db.prepare("SELECT * FROM providers WHERE id=?").get(providerId);
   if (!provider) throw new Error("provider_not_found");
@@ -665,7 +668,18 @@ app.post("/api/my-keys", requireAuth, async (req, res) => {
     res.json({ ok: true, ...out });
   } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
 });
-app.post("/api/voucher/redeem", requireAuth, (req, res) => { res.status(400).json({ ok: false, error: "Sistem voucher segera hadir." }); });
+app.post("/api/voucher/redeem", requireAuth, (req, res) => { const raw = String(req.body.code || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (raw.length !== 16) return res.status(400).json({ ok: false, error: "Kode vocher harus 16 karakter." });
+  const v = db.prepare("SELECT * FROM vouchers WHERE REPLACE(code,'-','')=?").get(raw);
+  if (!v) return res.status(404).json({ ok: false, error: "Kode vocher tidak ditemukan." });
+  if (v.used) return res.status(400).json({ ok: false, error: "Kode vocher sudah dipakai." });
+  const expires = new Date(Date.now() + (v.duration_days || 0) * 86400000).toISOString();
+  db.prepare("UPDATE vouchers SET used=1, used_by=?, used_at=datetime('now') WHERE id=?").run(req.user.id, v.id);
+  db.prepare("UPDATE users SET tier_slug=?, tier_expires_at=? WHERE id=?").run(v.tier_slug, expires, req.user.id);
+  res.json({ ok: true, tierSlug: v.tier_slug, expiresAt: expires, message: `Vocher berhasil! Paket kamu jadi ${v.tier_slug === "premium" ? "Premium" : v.tier_slug === "pro" ? "Pro" : "Plus"} sampai ${new Date(expires).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}.` }); });
+app.post("/api/admin/vouchers", requireAdmin, (req, res) => { const slug = String(req.body.tierSlug || "").toLowerCase(); if (!["plus", "pro", "premium"].includes(slug)) return res.status(400).json({ ok: false, error: "invalid_tier" }); const code = genVoucherCode(); const r = db.prepare("INSERT INTO vouchers (code,tier_slug,duration_days) VALUES (?,?,?)").run(code, slug, VOUCHER_DAYS[slug]); res.json({ ok: true, voucher: { id: r.lastInsertRowid, code, tierSlug: slug, durationDays: VOUCHER_DAYS[slug], used: false } }); });
+app.get("/api/admin/vouchers", requireAdmin, (req, res) => { const rows = db.prepare("SELECT v.*, u.email AS used_by_email FROM vouchers v LEFT JOIN users u ON u.id=v.used_by ORDER BY v.created_at DESC").all(); res.json({ ok: true, vouchers: rows.map((v) => ({ id: v.id, code: v.code, tierSlug: v.tier_slug, durationDays: v.duration_days, used: !!v.used, usedBy: v.used_by_email || null, usedAt: v.used_at, createdAt: v.created_at })) }); });
+app.delete("/api/admin/vouchers/:id", requireAdmin, (req, res) => { const out = db.prepare("DELETE FROM vouchers WHERE id=?").run(req.params.id); if (!out.changes) return res.status(404).json({ ok: false, error: "voucher_not_found" }); res.json({ ok: true }); });
 app.post("/api/harvest", requireAuth, async (req, res) => {
   const count = Number(req.body.count);
   const provider = db.prepare("SELECT * FROM providers WHERE id=?").get(req.body.providerId);
@@ -704,7 +718,7 @@ app.get("/api/admin/stats", requireAdmin, (req, res) => {
 });
 app.get("/api/admin/users", requireAdmin, (req, res) => {
   const rows = db.prepare("SELECT u.*, (SELECT COUNT(*) FROM api_keys k WHERE k.user_id=u.id AND k.status='active') AS key_count FROM users u ORDER BY u.created_at DESC").all();
-  res.json({ ok: true, users: rows.map((u) => ({ id: u.id, email: u.email, name: u.name, avatar: u.avatar, isAdmin: !!u.is_admin, keyCount: u.key_count, createdAt: u.created_at, tierSlug: u.tier_slug || "gratis" })) });
+  res.json({ ok: true, users: rows.map((u) => ({ id: u.id, email: u.email, name: u.name, avatar: u.avatar, isAdmin: !!u.is_admin, keyCount: u.key_count, createdAt: u.created_at, tierSlug: effectiveTierSlug(u) })) });
 });
 app.post("/api/admin/users/:id/tier", requireAdmin, (req, res) => { const slug = String(req.body.tierSlug || "").toLowerCase(); if (!["gratis", "plus", "pro", "premium"].includes(slug)) return res.status(400).json({ ok: false, error: "invalid_tier" }); const out = db.prepare("UPDATE users SET tier_slug=? WHERE id=?").run(slug, req.params.id); if (!out.changes) return res.status(404).json({ ok: false, error: "user_not_found" }); res.json({ ok: true, tierSlug: slug }); });
 app.delete("/api/admin/users/:id", requireAdmin, (req, res) => {
