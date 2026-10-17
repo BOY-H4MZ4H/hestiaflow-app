@@ -207,21 +207,31 @@ const randUA = () => UA_POOL[Math.floor(Math.random() * UA_POOL.length)];
 
 let _proxyCache = { list: [], at: 0 };
 async function fetchProxyList() {
-  // Proxyscrape free proxy list (operator's own source). Cache 5 min.
+  // Prioritas: PROXY_LIST env (proxy hidup yang sudah dites user).
+  const envList = (process.env.PROXY_LIST || "").split(",").map((x) => x.trim()).filter(Boolean);
+  if (envList.length) return envList;
+  // Fallback: Proxyscrape free proxy list (operator's own source). Cache 5 min.
   if (_proxyCache.list.length && Date.now() - _proxyCache.at < 300000) return _proxyCache.list;
   const urls = [
     "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=6000&country=all&ssl=all&anonymity=all",
-    "https://api.proxyscrape.com/v3/free-proxy-list/get?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all",
+    "https://api.proxyscrape.com/v3/free-proxy-list/get?request=displayproxies&proxy_format=protocolipport&format=text&protocol=http&timeout=15000",
+    "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
   ];
+  const out = [];
   for (const u of urls) {
     try {
       const r = await fetch(u, { signal: AbortSignal.timeout(15000) });
-      const txt = await r.text();
-      const list = txt.split(/\r?\n/).map((s) => s.trim()).filter((s) => /^\d+\.\d+\.\d+\.\d+:\d+$/.test(s));
-      if (list.length) { _proxyCache = { list, at: Date.now() }; return list; }
+      const t = await r.text().catch(() => "");
+      for (const line of t.split("\n")) {
+        const p = line.trim();
+        if (p && /^\d+\.\d+\.\d+\.\d+:\d+$/.test(p)) out.push("http://" + p);
+        else if (p && /^https?:\/\//.test(p)) out.push(p);
+      }
     } catch {}
   }
-  return _proxyCache.list;
+  const uniq = [...new Set(out)];
+  _proxyCache = { list: uniq, at: Date.now() };
+  return uniq;
 }
 function proxyDispatcher(proxyHostPort) {
   try {
