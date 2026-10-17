@@ -495,7 +495,7 @@ async function tryAutoRegisterAurora(provider) {
         const local = "hf" + randStr(10).toLowerCase();
         const r2 = await fetch(`https://api.guerrillamail.com/ajax.php?f=set_email_user&email_user=${encodeURIComponent(local)}&domain=sharklasers.com&lang=en&sid_token=${encodeURIComponent(j.sid_token)}`, { signal: AbortSignal.timeout(15000) });
         const j2 = await r2.json().catch(() => null);
-        if (j2 && j2.email_addr) return { email: j2.email_addr, sid: j.sid_token, kind: "guerrilla" };
+        if (j2 && j2.email_addr) return { email: j2.email_addr, sid: j2.sid_token || j.sid_token, kind: "guerrilla" };
       }
       if (j && j.email_addr) return { email: j.email_addr, sid: j.sid_token, kind: "guerrilla" };
     } catch {}
@@ -542,6 +542,7 @@ async function tryAutoRegisterAurora(provider) {
   if (!vr || !vr.ok) vr = await doFetch(webBase + "/api/verification?email=" + encodeURIComponent(tempEmail), { method: "GET", headers: H }, false);
   console.log(`[aurora] verification status=${vr ? vr.status : "null"} ok=${!!(vr && vr.ok)}`);
   console.log(`[aurora] verification resp=${vr ? String(vr.text || "").slice(0, 200) : "null"}`);
+  console.log(`[aurora] inbox=${inbox.email} kind=${inbox.kind}`);
   const code = inbox.kind === "mailtm" ? await mailtmCode(inbox) : await guerrillaCode(inbox);
   console.log(`[aurora] code found=${!!code}`);
   if (!code) return null;
@@ -679,6 +680,7 @@ async function tryAutoRegisterStella(provider) {
   const kr = await doFetch(webBase + "/api/v1/api-keys/", { method: "POST", headers: { "User-Agent": UA, "Content-Type": "application/json", "X-CSRFToken": csrftoken, Referer: webBase + "/account/", Cookie: cookieHdr3 }, body: JSON.stringify({ name: "script key" }) }, false);
   const key = kr && kr.ok && kr.json ? (kr.json.key || null) : null;
   console.log(`[stella] key status=${kr ? kr.status : "null"} hasKey=${!!key}`);
+  console.log(`[stella] key resp=${kr ? String(kr.text || "").replace(/\s+/g, " ").slice(0, 300) : "null"} csrftoken_len=${csrftoken.length}`);
   if (!key) return null;
   let verified = false;
   try {
