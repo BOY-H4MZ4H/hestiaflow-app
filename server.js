@@ -487,6 +487,31 @@ async function tryAutoRegisterAurora(provider) {
     }
     return null;
   };
+  const secmail = () => {
+    const login = "hf" + randStr(10).toLowerCase();
+    const domains = ["1secmail.com", "1secmail.net", "1secmail.org", "wwjmp.com", "esiix.com"];
+    const domain = domains[Math.floor(Math.random() * domains.length)];
+    return { email: login + "@" + domain, login, domain, kind: "secmail" };
+  };
+  const secmailCode = async (inbox) => {
+    for (let i = 0; i < 12; i++) {
+      try {
+        const r = await fetch(`https://www.1secmail.com/api/v1/?action=getMessages&login=${encodeURIComponent(inbox.login)}&domain=${encodeURIComponent(inbox.domain)}`, { signal: AbortSignal.timeout(15000) });
+        const list = await r.json().catch(() => []);
+        for (const m of Array.isArray(list) ? list : []) {
+          const subj = String(m.subject || "") + " " + String(m.from || "");
+          if (!/(tokit|verif|code)/i.test(subj)) continue;
+          const fr = await fetch(`https://www.1secmail.com/api/v1/?action=readMessage&login=${encodeURIComponent(inbox.login)}&domain=${encodeURIComponent(inbox.domain)}&id=${m.id}`, { signal: AbortSignal.timeout(15000) });
+          const fj = await fr.json().catch(() => null);
+          const body = (fj && (fj.textBody || fj.htmlBody || "")) + " " + (fj && fj.subject || "");
+          const code = (String(body).match(/\b(\d{4,6})\b/) || [])[1];
+          if (code) return code;
+        }
+      } catch {}
+      await new Promise((res) => setTimeout(res, 15000));
+    }
+    return null;
+  };
   const guerrilla = async () => {
     // get_email_address lewat proxy (IP beda -> domain beda dari pool).
     // Terima domain apa pun KECUALI @guerrillamailblock.com (yang di-blok Tokit).
@@ -536,7 +561,7 @@ async function tryAutoRegisterAurora(provider) {
     }
     return null;
   };
-  let inbox = await guerrilla();
+  let inbox = secmail();
   if (!inbox) inbox = await mailtm();
   if (!inbox) return null;
   const tempEmail = inbox.email;
@@ -560,7 +585,7 @@ async function tryAutoRegisterAurora(provider) {
   console.log(`[aurora] verification status=${vr ? vr.status : "null"} ok=${!!(vr && vr.ok)}`);
   console.log(`[aurora] verification resp=${vr ? String(vr.text || "").slice(0, 200) : "null"}`);
   console.log(`[aurora] inbox=${inbox.email} kind=${inbox.kind}`);
-  const code = inbox.kind === "mailtm" ? await mailtmCode(inbox) : await guerrillaCode(inbox);
+  const code = inbox.kind === "mailtm" ? await mailtmCode(inbox) : inbox.kind === "secmail" ? await secmailCode(inbox) : await guerrillaCode(inbox);
   console.log(`[aurora] code found=${!!code}`);
   if (!code) return null;
   const regBodies = [
