@@ -448,6 +448,239 @@ async function tryAutoRegisterNova(provider) {
 // (operator-configured in DB). Returns { upstreamApiKey, upstreamBaseUrl } or null.
 // NEVER logs or returns upstream credentials. Falls back to null on any failure
 // (CAPTCHA, email verification, unknown flow) — caller keeps NULL upstream key.
+async function tryAutoRegisterAurora(provider) {
+  const apiBase = (provider.upstream_url || "").replace(/\/$/, "");
+  if (!apiBase) return null;
+  const webBase = apiBase.replace(/\/v1$/, "");
+  const randIp = () => Array.from({ length: 4 }, () => 1 + Math.floor(Math.random() * 254)).join(".");
+  const mailtm = async () => {
+    try {
+      const dom = await (await fetch("https://api.mail.tm/domains", { signal: AbortSignal.timeout(15000) })).json().catch(() => null);
+      const domain = dom && dom["hydra:member"] && dom["hydra:member"][0] ? dom["hydra:member"][0].domain : "mail.tm";
+      const local = "hf" + randStr(10).toLowerCase();
+      const email = local + "@" + domain;
+      const pwd = randStr(12);
+      const ac = await fetch("https://api.mail.tm/accounts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address: email, password: pwd }), signal: AbortSignal.timeout(15000) });
+      if (!ac.ok) return null;
+      const tk = await fetch("https://api.mail.tm/token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address: email, password: pwd }), signal: AbortSignal.timeout(15000) });
+      const tj = await tk.json().catch(() => null);
+      if (!tj || !tj.token) return null;
+      return { email, password: pwd, token: tj.token, kind: "mailtm" };
+    } catch { return null; }
+  };
+  const mailtmCode = async (inbox) => {
+    for (let i = 0; i < 12; i++) {
+      try {
+        const r = await fetch("https://api.mail.tm/messages?page=1", { headers: { Authorization: "Bearer " + inbox.token }, signal: AbortSignal.timeout(15000) });
+        const j = await r.json().catch(() => null);
+        const msgs = j && j["hydra:member"] ? j["hydra:member"] : [];
+        for (const m of msgs) {
+          const mr = await fetch("https://api.mail.tm/messages/" + m.id, { headers: { Authorization: "Bearer " + inbox.token }, signal: AbortSignal.timeout(15000) });
+          const mj = await mr.json().catch(() => null);
+          const body = (mj && (mj.text || mj.html || "")) + " " + (mj && mj.subject || "");
+          const code = (String(body).match(/\b(\d{4,6})\b/) || [])[1];
+          if (code) return code;
+        }
+      } catch {}
+      await new Promise((res) => setTimeout(res, 10000));
+    }
+    return null;
+  };
+  const guerrilla = async () => {
+    try {
+      const r = await fetch("https://api.guerrillamail.com/ajax.php?f=get_email_address&lang=en", { signal: AbortSignal.timeout(15000) });
+      const j = await r.json().catch(() => null);
+      if (j && j.email_addr) return { email: j.email_addr, sid: j.sid_token, kind: "guerrilla" };
+    } catch {}
+    return null;
+  };
+  const guerrillaCode = async (inbox) => {
+    for (let i = 0; i < 12; i++) {
+      try {
+        const r = await fetch(`https://api.guerrillamail.com/ajax.php?f=check_email&seq=0&sid_token=${encodeURIComponent(inbox.sid)}`, { signal: AbortSignal.timeout(15000) });
+        const j = await r.json().catch(() => null);
+        const list = j && j.list ? j.list : [];
+        for (const m of list) {
+          const fr = await fetch(`https://api.guerrillamail.com/ajax.php?f=fetch_email&email_id=${m.mail_id}&sid_token=${encodeURIComponent(inbox.sid)}`, { signal: AbortSignal.timeout(15000) });
+          const fj = await fr.json().catch(() => null);
+          const body = (fj && (fj.mail_body || "")) + " " + (fj && fj.mail_subject || "");
+          const code = (String(body).match(/\b(\d{4,6})\b/) || [])[1];
+          if (code) return code;
+        }
+      } catch {}
+      await new Promise((res) => setTimeout(res, 10000));
+    }
+    return null;
+  };
+  let inbox = await mailtm();
+  if (!inbox) inbox = await guerrilla();
+  if (!inbox) return null;
+  const tempEmail = inbox.email;
+  const tempPassword = inbox.password || (randStr(10) + "12345");
+  const proxies = await fetchProxyList();
+  const proxy = proxies.length ? proxies[Math.floor(Math.random() * proxies.length)] : null;
+  const doFetch = async (url, opts, useProxy) => {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 30000);
+    try {
+      const o = { ...opts, signal: ctl.signal };
+      if (useProxy && proxy) { const d = proxyDispatcher(proxy); if (d) o.dispatcher = d; }
+      const r = await fetch(url, o);
+      const txt = await r.text().catch(() => "");
+      let j = null; try { j = JSON.parse(txt); } catch {}
+      return { ok: r.ok, status: r.status, json: j, text: txt };
+    } catch { return null; } finally { clearTimeout(t); }
+  };
+  const H = { "User-Agent": randUA(), "Content-Type": "application/json", "X-Forwarded-For": randIp() };
+  let vr = await doFetch(webBase + "/api/verification?email=" + encodeURIComponent(tempEmail), { method: "GET", headers: H }, true);
+  if (!vr || !vr.ok) vr = await doFetch(webBase + "/api/verification?email=" + encodeURIComponent(tempEmail), { method: "GET", headers: H }, false);
+  console.log(`[aurora] verification status=${vr ? vr.status : "null"} ok=${!!(vr && vr.ok)}`);
+  const code = inbox.kind === "mailtm" ? await mailtmCode(inbox) : await guerrillaCode(inbox);
+  console.log(`[aurora] code found=${!!code}`);
+  if (!code) return null;
+  const regBodies = [
+    { email: tempEmail, password: tempPassword, code, aff: "jvTs" },
+    { email: tempEmail, password: tempPassword, verification_code: code, aff: "jvTs" },
+    { email: tempEmail, password: tempPassword, code },
+  ];
+  let reg = null;
+  for (const b of regBodies) {
+    reg = await doFetch(webBase + "/api/user/register", { method: "POST", headers: H, body: JSON.stringify(b) }, false);
+    if (reg && reg.ok) break;
+  }
+  console.log(`[aurora] register status=${reg ? reg.status : "null"} ok=${!!(reg && reg.ok)}`);
+  if (!reg || !reg.ok) return null;
+  const lg = await doFetch(webBase + "/api/user/login", { method: "POST", headers: H, body: JSON.stringify({ email: tempEmail, password: tempPassword }) }, false);
+  const token = lg && lg.ok && lg.json ? (lg.json.token || lg.json.access_token || lg.json.accessToken || null) : null;
+  console.log(`[aurora] login status=${lg ? lg.status : "null"} hasToken=${!!token}`);
+  if (!token) return null;
+  const AH = { ...H, Authorization: `Bearer ${token}` };
+  let tid = null;
+  const tk = await doFetch(webBase + "/api/token/", { method: "POST", headers: AH, body: JSON.stringify({ name: "key-1" }) }, false);
+  if (tk && tk.ok && tk.json) tid = tk.json.id || tk.json.tid || tk.json.token_id || null;
+  if (!tid) {
+    const lt = await doFetch(webBase + "/api/token/", { method: "GET", headers: AH }, false);
+    const arr = lt && lt.ok && lt.json ? (Array.isArray(lt.json) ? lt.json : (lt.json.tokens || lt.json.data || [])) : [];
+    if (arr.length) tid = arr[0].id || arr[0].tid || arr[0].token_id || null;
+  }
+  console.log(`[aurora] token id=${tid}`);
+  if (!tid) return null;
+  const kr = await doFetch(webBase + `/api/token/${tid}/key`, { method: "POST", headers: AH, body: JSON.stringify({}) }, false);
+  const key = kr && kr.ok && kr.json ? (kr.json.key || kr.json.api_key || kr.json.apiKey || null) : null;
+  console.log(`[aurora] key status=${kr ? kr.status : "null"} hasKey=${!!key}`);
+  if (!key) return null;
+  let verified = false;
+  try {
+    const v = await fetch(apiBase + "/v1/models", { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(20000) });
+    verified = !!v.ok;
+    console.log(`[aurora] verify models status=${v.status} ok=${v.ok}`);
+  } catch (e) { console.log(`[aurora] verify exception ${e.message}`); }
+  return { upstreamApiKey: key, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: verified };
+}
+
+async function tryAutoRegisterStella(provider) {
+  const apiBase = (provider.upstream_url || "").replace(/\/$/, "");
+  if (!apiBase) return null;
+  const webBase = apiBase.replace(/\/v1$/, "");
+  const miInbox = async () => {
+    try {
+      const h0 = { "User-Agent": randUA() };
+      const r0 = await fetch("https://www.minuteinbox.com/", { headers: h0, signal: AbortSignal.timeout(30000) });
+      const t0 = await r0.text().catch(() => "");
+      const m = t0.match(/(?:CSRF|csrf_token|csrf)\s*[:=]\s*["']([^"']+)["']/);
+      const csrf = m ? m[1] : "";
+      const cookies = (r0.headers.getSetCookie ? r0.headers.getSetCookie() : []).map((c) => c.split(";")[0]).join("; ");
+      const NAMES = ["hestia", "ayang", "sayang", "cinta", "rindu", "kasih", "manja", "bunga"];
+      const local = NAMES[Math.floor(Math.random() * NAMES.length)] + String(Date.now()).slice(-6);
+      const ajaxH = { ...h0, Referer: "https://www.minuteinbox.com/", Origin: "https://www.minuteinbox.com", "X-Requested-With": "XMLHttpRequest", Cookie: cookies, "Content-Type": "application/x-www-form-urlencoded" };
+      await new Promise((res) => setTimeout(res, 1000));
+      await fetch("https://www.minuteinbox.com/index/new-email/", { method: "POST", headers: ajaxH, body: "emailInput=" + encodeURIComponent(local) + "&format=json", signal: AbortSignal.timeout(30000) });
+      await new Promise((res) => setTimeout(res, 2000));
+      const r1 = await fetch("https://www.minuteinbox.com/index/index?csrf_token=" + encodeURIComponent(csrf), { headers: ajaxH, signal: AbortSignal.timeout(30000) });
+      const j1 = await r1.json().catch(() => null);
+      if (j1 && j1.email) return { email: j1.email, cookies, csrf, ajaxH };
+    } catch {}
+    return null;
+  };
+  const miCode = async (inbox) => {
+    for (let i = 0; i < 20; i++) {
+      try {
+        const r = await fetch("https://www.minuteinbox.com/index/refresh", { headers: inbox.ajaxH, signal: AbortSignal.timeout(30000) });
+        const j = await r.json().catch(() => null);
+        const list = Array.isArray(j) ? j : [];
+        for (const m of list) {
+          const frm = String(m.od || "").toLowerCase();
+          const subj = String(m.predmet || "").toLowerCase();
+          if (frm.includes("free") || subj.includes("free") || subj.includes("verif") || subj.includes("code")) {
+            const er = await fetch("https://www.minuteinbox.com/index/email?id=" + m.id, { headers: inbox.ajaxH, signal: AbortSignal.timeout(30000) });
+            const body = await er.text().catch(() => "");
+            const clean = body.replace(/<[^>]+>/g, " ");
+            const codes = (clean.match(/\b(\d{6})\b/g) || []).filter((c) => !["374151", "000000", "ffffff"].includes(c));
+            if (codes.length) return codes[0];
+          }
+        }
+      } catch {}
+      await new Promise((res) => setTimeout(res, 15000));
+    }
+    return null;
+  };
+  const inbox = await miInbox();
+  if (!inbox) return null;
+  const tempEmail = inbox.email;
+  const tempPassword = "Hestia" + String(10 + Math.floor(Math.random() * 90)) + "12345";
+  const proxies = await fetchProxyList();
+  const proxy = proxies.length ? proxies[Math.floor(Math.random() * proxies.length)] : null;
+  const doFetch = async (url, opts, useProxy) => {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 30000);
+    try {
+      const o = { ...opts, signal: ctl.signal };
+      if (useProxy && proxy) { const d = proxyDispatcher(proxy); if (d) o.dispatcher = d; }
+      const r = await fetch(url, o);
+      const txt = await r.text().catch(() => "");
+      let j = null; try { j = JSON.parse(txt); } catch {}
+      const ck = (r.headers.getSetCookie ? r.headers.getSetCookie() : []).map((c) => c.split(";")[0]).join("; ");
+      return { ok: r.ok, status: r.status, json: j, text: txt, url: r.url, cookies: ck };
+    } catch { return null; } finally { clearTimeout(t); }
+  };
+  const UA = randUA();
+  await doFetch(webBase + "/", { method: "GET", headers: { "User-Agent": UA } }, false);
+  const sg = await doFetch(webBase + "/signup/", { method: "GET", headers: { "User-Agent": UA } }, false);
+  const csrf = sg && sg.text ? ((sg.text.match(/name="csrfmiddlewaretoken" value="([^"]+)"/) || [])[1]) : null;
+  const stok = sg && sg.text ? ((sg.text.match(/name="signup_token" value="([^"]+)"/) || [])[1]) : null;
+  console.log(`[stella] signup form csrf=${!!csrf} stok=${!!stok} cookies=${!!(sg && sg.cookies)}`);
+  if (!csrf || !stok) return null;
+  const cookieHdr = sg.cookies || "";
+  const form = new URLSearchParams({ csrfmiddlewaretoken: csrf, lang: "en", signup_token: stok, email: tempEmail, password: tempPassword }).toString();
+  const rp = await doFetch(webBase + "/signup/", { method: "POST", headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded", Referer: webBase + "/signup/", Cookie: cookieHdr }, body: form }, false);
+  const signupOk = rp && (rp.url.includes("/verify/") || rp.text.includes('name="code"') || rp.text.includes("/verify/"));
+  console.log(`[stella] signup status=${rp ? rp.status : "null"} ok=${!!signupOk} disposable=${!!(rp && rp.text.includes("Disposable"))}`);
+  if (!signupOk) return null;
+  const cookieHdr2 = rp.cookies || cookieHdr;
+  const code = await miCode(inbox);
+  console.log(`[stella] code found=${!!code}`);
+  if (!code) return null;
+  const vf = await doFetch(webBase + "/verify/", { method: "GET", headers: { "User-Agent": UA, Cookie: cookieHdr2 } }, false);
+  const vcsrf = vf && vf.text ? ((vf.text.match(/name="csrfmiddlewaretoken" value="([^"]+)"/) || [])[1]) : csrf;
+  const vform = new URLSearchParams({ csrfmiddlewaretoken: vcsrf || csrf, code }).toString();
+  const vr = await doFetch(webBase + "/verify/", { method: "POST", headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded", Referer: webBase + "/verify/", Cookie: cookieHdr2 }, body: vform }, false);
+  const verifyOk = vr && (!vr.url.includes("/verify/") && !vr.text.includes('name="code"'));
+  console.log(`[stella] verify status=${vr ? vr.status : "null"} ok=${!!verifyOk}`);
+  if (!verifyOk) return null;
+  const cookieHdr3 = vr.cookies || cookieHdr2;
+  const csrftoken = (cookieHdr3.match(/csrftoken=([^;]+)/) || [])[1] || "";
+  const kr = await doFetch(webBase + "/api/v1/api-keys/", { method: "POST", headers: { "User-Agent": UA, "Content-Type": "application/json", "X-CSRFToken": csrftoken, Referer: webBase + "/account/", Cookie: cookieHdr3 }, body: JSON.stringify({ name: "script key" }) }, false);
+  const key = kr && kr.ok && kr.json ? (kr.json.key || null) : null;
+  console.log(`[stella] key status=${kr ? kr.status : "null"} hasKey=${!!key}`);
+  if (!key) return null;
+  let verified = false;
+  try {
+    const v = await fetch(apiBase + "/v1/models", { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(20000) });
+    verified = !!v.ok;
+    console.log(`[stella] verify models status=${v.status} ok=${v.ok}`);
+  } catch (e) { console.log(`[stella] verify exception ${e.message}`); }
+  return { upstreamApiKey: key, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: verified };
+}
+
+
 async function tryAutoRegister(provider, tempEmail, tempPassword) {
   const base = (provider.upstream_url || "").replace(/\/$/, "");
   if (!base) return null;
@@ -460,6 +693,16 @@ async function tryAutoRegister(provider, tempEmail, tempPassword) {
   if ((provider.brand_name || "").toLowerCase() === "nova") {
     const nova = await tryAutoRegisterNova(provider);
     if (nova) return nova;
+    return null;
+  }
+  if ((provider.brand_name || "").toLowerCase() === "aurora") {
+    const aurora = await tryAutoRegisterAurora(provider);
+    if (aurora) return aurora;
+    return null;
+  }
+  if ((provider.brand_name || "").toLowerCase() === "stella") {
+    const stella = await tryAutoRegisterStella(provider);
+    if (stella) return stella;
     return null;
   }
   const tryFetch = async (url, opts, ms) => {
