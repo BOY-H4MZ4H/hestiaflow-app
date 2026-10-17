@@ -118,7 +118,7 @@ async function loadUser() {
         <button class="snippet-tab" data-tab="python" onclick="switchSnippet('python')">Python</button>
         <button class="snippet-tab" data-tab="node" onclick="switchSnippet('node')">Node.js</button>
       </div>
-      <div class="termbox" style="overflow:auto"><div class="termbox-head"><span class="termbox-dots">● ● ●</span><span id="snippetLabel">CURL (TERMINAL / BASH)</span><button onclick="copySnippet(this)" class="copy-snippet-btn">Copy</button>Copy</button></div><pre id="snippetCode" style="margin:0;white-space:pre">curl https://hestiaflow-app-production.up.railway.app/v1/chat/completions \
+      <div class="termbox" style="overflow:auto"><div class="termbox-head"><span class="termbox-dots">● ● ●</span><span id="snippetLabel">CURL (TERMINAL / BASH)</span><button onclick="copySnippet(this)" class="copy-snippet-btn">Copy</button></div><pre id="snippetCode" style="margin:0;white-space:pre">curl https://hestiaflow-app-production.up.railway.app/v1/chat/completions \
   -H "Authorization: Bearer API_KEY_KAMU" \
   -H "Content-Type: application/json" \
   -d '{
