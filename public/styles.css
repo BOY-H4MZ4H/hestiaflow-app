@@ -101,5 +101,5 @@ footer img{width:30px;height:30px;border-radius:50%;object-fit:cover;border:1.5p
 
 .tier-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
 .tier-price{text-align:right;flex-shrink:0}
-.tier-price .price{font-size:20px;font-weight:800;color:var(--plum);line-height:1.2}
-.tier-price .price-dur{font-size:12px;color:var(--muted);margin-top:2px}
+.tier-price .price{font-size:20px;font-weight:800;color:var(--gold);line-height:1.2}
+.tier-price .price-dur{font-size:12px;color:var(--plum);margin-top:2px}
