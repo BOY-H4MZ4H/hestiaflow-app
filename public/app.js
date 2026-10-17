@@ -55,7 +55,6 @@ function tierShowcase() {
         <div class="brand"><div class="medal ${t.slug === "premium" ? "gold" : ""}">${esc(p.brand.slice(0, 1))}</div>
         <div><h3>${esc(p.brand)}</h3><p>${esc(p.tagline || "")}</p></div></div>
         <div><span class="chip">${p.modelCount} model</span><span class="chip">${esc(p.creditNote || "")}</span></div>
-        <p class="kv">${esc(p.modelNotes && Object.values(p.modelNotes)[0] || "")}</p>
       `).join("") || `<p class="muted">Belum ada provider di tier ini.</p>`}
     </div>`).join("")}</div></div>`;
 }
