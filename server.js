@@ -438,7 +438,7 @@ async function doHarvest({ userId, providerId, count }) {
     logs.push(msg);
     keys.push({ id: k.lastInsertRowid, providerBrand: provider.brand_name, tierSlug: tier ? tier.slug : null, key: userId ? keyValue : undefined, keyPrefix, credit, models, modelSource: source, modelCount: provider.model_count });
   }
-  return { count, logs, keys };
+  return { count, logs, keys, proxyTotal: _proxyCache.list.length };
 }
 
 // ---------- auth ----------
