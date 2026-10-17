@@ -27,7 +27,7 @@ async function load() {
     const pub = await api("/api/public/tiers"); TIERS = pub.tiers || [];
     const st = await api("/api/public/settings"); SETTINGS = st;
     const pool = await api("/api/public/pool"); POOL = pool;
-    $("#footBase").textContent = SETTINGS.baseUrl || "https://api.hestia-gateway.id/v1";
+    const fb = $("#footBase"); if (fb) fb.textContent = SETTINGS.baseUrl || "https://api.hestia-gateway.id/v1";
   } catch (e) { /* offline-ish */ }
   renderAuth();
   render();
