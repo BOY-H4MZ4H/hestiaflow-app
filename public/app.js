@@ -86,7 +86,7 @@ async function loadUser() {
     $("#userRoot").innerHTML = `
     <div class="section"><h2>Panen Akun</h2><p class="sub">Panen akun provider — tiap panen membuat 1 akun baru dengan email sementara yang berbeda-beda. Email & sandi tidak pernah ditampilkan. Pilih bebas 1–50 (maks 50).</p>
       <div class="card">
-        <div><label>Provider</label><div id="harvestProviderSidebar" class="tier-sidebar"></div></div>
+        <div><label>Provider</label><div class="tier-picker"><button class="btn btn-plum tier-picker-btn" id="tierPickerBtn" onclick="toggleTierPicker()">Tier: <span id="tierPickerLabel">Gratis • 2 Model</span> ▾</button><div id="harvestProviderSidebar" class="tier-sidebar tier-picker-pop" style="display:none"></div></div></div>
         <div style="margin-top:14px"><label>Jumlah akun (1–50)</label><div class="stepper">
           <button type="button" onclick="stepCount(-1)">−</button>
           <input id="harvestCount" type="number" min="1" max="50" value="1" oninput="clampCount(this)" />
@@ -164,12 +164,26 @@ function renderHarvestSidebar() {
   if (!items.length) { el.innerHTML = `<p class="muted">Belum ada provider.</p>`; return; }
   if (!selectedHarvestProviderId || !items.some((x) => x.p.id === selectedHarvestProviderId)) selectedHarvestProviderId = items[0].p.id;
   el.innerHTML = items.map((x) => `<div class="tier-side-opt${x.p.id === selectedHarvestProviderId ? " sel" : ""}" data-pid="${x.p.id}" onclick="selectHarvestProvider(${x.p.id})">${esc(short[x.tier.slug] || x.tier.name)} • ${x.p.modelCount} Model</div>`).join("");
+  const cur = items.find((x) => x.p.id === selectedHarvestProviderId);
+  const lbl = $("#tierPickerLabel"); if (lbl && cur) lbl.textContent = `${short[cur.tier.slug] || cur.tier.name} • ${cur.p.modelCount} Model`;
+}
+function toggleTierPicker() {
+  const pop = $("#harvestProviderSidebar"); if (!pop) return;
+  pop.style.display = pop.style.display === "none" ? "block" : "none";
 }
 function selectHarvestProvider(pid) {
   selectedHarvestProviderId = pid;
   document.querySelectorAll(".tier-side-opt").forEach((d) => d.classList.toggle("sel", Number(d.dataset.pid) === pid));
+  const pop = $("#harvestProviderSidebar"); if (pop) pop.style.display = "none";
+  const short = { gratis: "Gratis", plus: "Plus", pro: "Pro", premium: "Prem" };
+  const cur = (TIERS.flatMap((t) => (t.providers || []).map((p) => ({ tier: t, p })))).find((x) => x.p.id === pid);
+  const lbl = $("#tierPickerLabel"); if (lbl && cur) lbl.textContent = `${short[cur.tier.slug] || cur.tier.name} • ${cur.p.modelCount} Model`;
   updateModelBox();
 }
+document.addEventListener("click", (e) => {
+  const pop = $("#harvestProviderSidebar"); if (!pop || pop.style.display === "none") return;
+  if (!e.target.closest(".tier-picker")) pop.style.display = "none";
+});
 async function updateModelBox() {
   const box = $("#modelBox"); if (!box) return;
   const pid = selectedHarvestProviderId;
