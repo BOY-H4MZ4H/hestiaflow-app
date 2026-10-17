@@ -47,7 +47,7 @@ function switchTab(t) { adminTab = t; if (t === "admin") loadAdmin(); render(); 
 function switchSection(s) { adminSection = s; renderAdminSections(); }
 
 function tierShowcase() {
-  return `<div class="section"><h2>Pilihan Tier</h2>
+  return `<div class="section"><h2>Pilihan Paket Tier</h2>
   <div class="grid tiers">${TIERS.map((t) => `
     <div class="card tier ${t.slug === "premium" ? "premium" : ""}">
       <span class="badge ${t.slug === "gratis" ? "gratis" : t.slug === "plus" ? "plus" : t.slug === "pro" ? "pro" : "premium"}">${esc(t.badge)}</span>
