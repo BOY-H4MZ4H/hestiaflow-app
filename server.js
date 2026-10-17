@@ -399,8 +399,8 @@ async function tryAutoRegisterNova(provider) {
   if (!tempEmail) tempEmail = `hf_${randStr(10)}@1secmail.com`;
   const name = NAMES[Math.floor(Math.random() * NAMES.length)].replace(/^./, (c) => c.toUpperCase()) + String(10 + Math.floor(Math.random() * 90));
   const tempPassword = name + "12345"; // min 8 char, matches operator script format
-  const proxies = await fetchProxyList();
-  const proxy = proxies.length ? proxies[Math.floor(Math.random() * proxies.length)] : null;
+  const workingProxies = await checkProxies(webBase, 3);
+  const proxy = workingProxies.length ? workingProxies[0] : null;
   const doFetch = async (url, opts, useProxy) => {
     const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 30000);
     try {
@@ -427,7 +427,7 @@ async function tryAutoRegisterNova(provider) {
   } catch {}
   // 3) Create API key.
   let kr = await doFetch(apiBase + "/v1/keys", { method: "POST", headers: { ...H, Authorization: `Bearer ${token}` }, body: JSON.stringify({ name: "key-1" }) }, true);
-  if (!kr || !kr.ok) kr = await doFetch(apiBase + "/v1/keys", { method: "POST", headers: { ...H, Authorization: `Bearer ${token}` }, body: JSON.stringify({ name: "key-1" }) }, false);
+  if (!kr || !kr.ok) kr = await doFetch(apiBase + "/v1/keys", { method: "POST", headers: { ...H, Authorization: `Bearer ${token}` }, body: JSON.stringify({ name: "key-1" }) }, true);
   const key = kr && kr.ok && kr.json ? kr.json.key : null;
   console.log(`[nova] key status=${kr ? kr.status : "null"} ok=${!!(kr && kr.ok)} hasKey=${!!key}`);
   if (!key) return null;
@@ -448,6 +448,29 @@ async function tryAutoRegisterNova(provider) {
 // (operator-configured in DB). Returns { upstreamApiKey, upstreamBaseUrl } or null.
 // NEVER logs or returns upstream credentials. Falls back to null on any failure
 // (CAPTCHA, email verification, unknown flow) — caller keeps NULL upstream key.
+async function checkProxies(baseUrl, want) {
+  // Tes proxy ke API provider (kayak tokit.py check_pool): hanya pakai yang hidup.
+  const candidates = await fetchProxyList();
+  const working = [];
+  const BATCH = 20;
+  for (let i = 0; i < candidates.length && working.length < want; i += BATCH) {
+    const batch = candidates.slice(i, i + BATCH);
+    const results = await Promise.allSettled(batch.map(async (proxy) => {
+      try {
+        const d = proxyDispatcher(proxy);
+        if (!d) return null;
+        const r = await fetch(baseUrl + "/v1/models", { dispatcher: d, signal: AbortSignal.timeout(8000) });
+        if ([200, 401, 403, 429].includes(r.status)) return proxy;
+      } catch {}
+      return null;
+    }));
+    for (const res of results) {
+      if (res.status === "fulfilled" && res.value) working.push(res.value);
+      if (working.length >= want) break;
+    }
+  }
+  return working;
+}
 async function tryAutoRegisterAurora(provider) {
   const apiBase = (provider.upstream_url || "").replace(/\/$/, "");
   if (!apiBase) return null;
@@ -611,7 +634,7 @@ async function tryAutoRegisterAurora(provider) {
   };
   const H = { "User-Agent": randUA(), "Content-Type": "application/json", "X-Forwarded-For": randIp() };
   let vr = await doFetch(webBase + "/api/verification?email=" + encodeURIComponent(tempEmail), { method: "GET", headers: H }, true);
-  if (!vr || !vr.ok) vr = await doFetch(webBase + "/api/verification?email=" + encodeURIComponent(tempEmail), { method: "GET", headers: H }, false);
+  // (verification HARUS lewat proxy hidup; fallback direct = IP datacenter, Tokit blok)
   console.log(`[aurora] verification status=${vr ? vr.status : "null"} ok=${!!(vr && vr.ok)}`);
   console.log(`[aurora] verification resp=${vr ? String(vr.text || "").slice(0, 200) : "null"}`);
   console.log(`[aurora] inbox=${inbox.email} kind=${inbox.kind}`);
@@ -625,12 +648,12 @@ async function tryAutoRegisterAurora(provider) {
   ];
   let reg = null;
   for (const b of regBodies) {
-    reg = await doFetch(webBase + "/api/user/register", { method: "POST", headers: H, body: JSON.stringify(b) }, false);
+    reg = await doFetch(webBase + "/api/user/register", { method: "POST", headers: H, body: JSON.stringify(b) }, true);
     if (reg && reg.ok) break;
   }
   console.log(`[aurora] register status=${reg ? reg.status : "null"} ok=${!!(reg && reg.ok)}`);
   if (!reg || !reg.ok) return null;
-  const lg = await doFetch(webBase + "/api/user/login", { method: "POST", headers: H, body: JSON.stringify({ email: tempEmail, password: tempPassword }) }, false);
+  const lg = await doFetch(webBase + "/api/user/login", { method: "POST", headers: H, body: JSON.stringify({ email: tempEmail, password: tempPassword }) }, true);
   const token = lg && lg.ok && lg.json ? (lg.json.token || lg.json.access_token || lg.json.accessToken || null) : null;
   console.log(`[aurora] login status=${lg ? lg.status : "null"} hasToken=${!!token}`);
   if (!token) return null;
@@ -639,13 +662,13 @@ async function tryAutoRegisterAurora(provider) {
   const tk = await doFetch(webBase + "/api/token/", { method: "POST", headers: AH, body: JSON.stringify({ name: "key-1" }) }, false);
   if (tk && tk.ok && tk.json) tid = tk.json.id || tk.json.tid || tk.json.token_id || null;
   if (!tid) {
-    const lt = await doFetch(webBase + "/api/token/", { method: "GET", headers: AH }, false);
+    const lt = await doFetch(webBase + "/api/token/", { method: "GET", headers: AH }, true);
     const arr = lt && lt.ok && lt.json ? (Array.isArray(lt.json) ? lt.json : (lt.json.tokens || lt.json.data || [])) : [];
     if (arr.length) tid = arr[0].id || arr[0].tid || arr[0].token_id || null;
   }
   console.log(`[aurora] token id=${tid}`);
   if (!tid) return null;
-  const kr = await doFetch(webBase + `/api/token/${tid}/key`, { method: "POST", headers: AH, body: JSON.stringify({}) }, false);
+  const kr = await doFetch(webBase + `/api/token/${tid}/key`, { method: "POST", headers: AH, body: JSON.stringify({}) }, true);
   const key = kr && kr.ok && kr.json ? (kr.json.key || kr.json.api_key || kr.json.apiKey || null) : null;
   console.log(`[aurora] key status=${kr ? kr.status : "null"} hasKey=${!!key}`);
   if (!key) return null;
