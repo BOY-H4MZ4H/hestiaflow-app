@@ -126,7 +126,7 @@ async function deleteAllHarvestKeys(btn) {
   for (const k of (lastHarvestKeys || [])) { try { if (k.id) await api("/api/my-keys/" + k.id, { method: "DELETE" }); } catch {} }
   lastHarvestKeys = [];
   const proc = $("#harvestProc"); if (proc) proc.innerHTML = `<div class="term-line">Semua API key dari panen ini sudah dihapus.</div>`;
-  const sumEl = $("#harvestSummary"); if (sumEl) sumEl.innerHTML = `<span>Live : <b>0</b> &nbsp;·&nbsp; Mati : <b>0</b></span>`;
+  const sumEl = $("#harvestSummary"); if (sumEl) sumEl.innerHTML = `<span>Live : <b>0</b>·Mati : <b>0</b></span>`;
   btn.disabled = false; btn.textContent = "Hapus"; btn.dataset.armed = "";
 }
 async function deleteMyKey(id, btn) {
@@ -161,7 +161,7 @@ async function doUserHarvest() {
     const liveN = (out.keys || []).filter((k) => k.live).length;
     const deadN = (out.keys || []).length - liveN;
     lastHarvestKeys = out.keys || [];
-    const sumEl = $("#harvestSummary"); if (sumEl) sumEl.innerHTML = `<span>Live : <b>${liveN}</b> &nbsp;·&nbsp; Mati : <b>${deadN}</b></span> <span style="white-space:nowrap"><button class="btn btn-ghost btn-sm" onclick="copyAllHarvestKeys(this)">Salin</button> <button class="btn btn-danger btn-sm" onclick="deleteAllHarvestKeys(this)">Hapus</button></span>`;
+    const sumEl = $("#harvestSummary"); if (sumEl) sumEl.innerHTML = `<span>Live : <b>${liveN}</b>·Mati : <b>${deadN}</b></span> <span style="white-space:nowrap"><button class="btn btn-ghost btn-sm" onclick="copyAllHarvestKeys(this)">Salin</button> <button class="btn btn-danger btn-sm" onclick="deleteAllHarvestKeys(this)">Hapus</button></span>`;
     btn.disabled = false;
   } catch (e) {
     proc.innerHTML = `<div class="term-line term-err">Gagal: ${esc(e.message)}</div>`;
