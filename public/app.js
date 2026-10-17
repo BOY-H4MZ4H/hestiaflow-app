@@ -104,11 +104,30 @@ async function loadUser() {
       <p class="kv" id="harvestProgText"></p>
       <div class="termbox" id="harvestProc" style="display:none"></div>
       <p class="kv" id="harvestSummary"></p>
-      <p class="kv">Slot hasil panen berstatus siap; kredensialnya dilengkapi lewat Pool Worker oleh operator.</p></div></div>`;
+</div></div>`;
   } catch (e) { $("#userRoot").innerHTML = `<p class="muted">Gagal memuat: ${esc(e.message)}</p>`; }
 }
 function keyBoxAll(keys) {
   return `<div class="keybox" style="margin-bottom:12px"><div class="lbl">API key HestiaFlow</div><div class="key-list-scroll">${keys.map((k) => `<div class="key-row"><span class="key-row-tag">${esc(k.tierSlug || "")} · ${esc(k.providerBrand || "")} · Credit: ${k.credit != null ? esc(k.credit) : "Tidak dinyatakan"}</span><span class="key-row-val">${esc(k.key)}</span><div style="display:flex;gap:6px;margin-top:4px"><button class="btn btn-ghost btn-sm" onclick="copyText('${esc(k.key)}',this)">Salin Key</button><button class="btn btn-ghost btn-sm" style="color:#b91c1c" onclick="deleteMyKey(${k.id},this)">Hapus</button></div></div>`).join("")}</div></div>`;
+}
+let lastHarvestKeys = [];
+function copyAllHarvestKeys(btn) {
+  const liveKeys = (lastHarvestKeys || []).filter((k) => k.live).map((k) => k.key).filter(Boolean);
+  if (!liveKeys.length) { const t = btn.textContent; btn.textContent = "Tidak ada API key"; setTimeout(() => { btn.textContent = t; }, 2000); return; }
+  copyText(liveKeys.join("\n"), btn);
+}
+async function deleteAllHarvestKeys(btn) {
+  if (btn.dataset.armed !== "1") {
+    btn.dataset.armed = "1"; btn.textContent = "Yakin Hapus?";
+    setTimeout(() => { btn.dataset.armed = ""; btn.textContent = "Hapus"; }, 3000);
+    return;
+  }
+  btn.disabled = true; btn.textContent = "Menghapus…";
+  for (const k of (lastHarvestKeys || [])) { try { if (k.id) await api("/api/my-keys/" + k.id, { method: "DELETE" }); } catch {} }
+  lastHarvestKeys = [];
+  const proc = $("#harvestProc"); if (proc) proc.innerHTML = `<div class="term-line">Semua API key dari panen ini sudah dihapus.</div>`;
+  const sumEl = $("#harvestSummary"); if (sumEl) sumEl.innerHTML = "";
+  btn.disabled = false; btn.textContent = "Hapus"; btn.dataset.armed = "";
 }
 async function deleteMyKey(id, btn) {
   // 2-step in-page confirm (no native dialog, so it works everywhere).
@@ -141,7 +160,8 @@ async function doUserHarvest() {
     proc.innerHTML = html;
     const liveN = (out.keys || []).filter((k) => k.live).length;
     const deadN = (out.keys || []).length - liveN;
-    const sumEl = $("#harvestSummary"); if (sumEl) sumEl.innerHTML = `Live : <b>${liveN}</b> &nbsp;·&nbsp; Mati : <b>${deadN}</b>`;
+    lastHarvestKeys = out.keys || [];
+    const sumEl = $("#harvestSummary"); if (sumEl) sumEl.innerHTML = `<span>Live : <b>${liveN}</b> &nbsp;·&nbsp; Mati : <b>${deadN}</b></span> <button class="btn btn-danger btn-sm" onclick="deleteAllHarvestKeys(this)">Hapus</button> <button class="btn btn-ghost btn-sm" onclick="copyAllHarvestKeys(this)">Salin Seluruh Api Key</button>`;
     btn.disabled = false;
   } catch (e) {
     proc.innerHTML = `<div class="term-line term-err">Gagal: ${esc(e.message)}</div>`;
