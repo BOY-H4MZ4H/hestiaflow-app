@@ -27,7 +27,7 @@ main{max-width:1080px;margin:0 auto;padding:24px 16px 80px}
 .section h2{font-size:20px;color:var(--plum);margin:0 0 4px}
 .section .sub{color:var(--muted);font-size:13.5px;margin:0 0 14px}
 .grid{display:grid;gap:16px}
-.grid.tiers{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.grid.tiers{grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr))}
 .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:0 6px 24px rgba(61,27,61,.06)}
 .card.tier{border-top:5px solid var(--plum);position:relative}
 .card.tier.premium{border-top-color:var(--gold);background:linear-gradient(180deg,#fffdf4,#fff)}
