@@ -103,7 +103,7 @@ async function loadUser() {
       <div class="progress" style="margin-top:14px"><div id="harvestProg"></div></div>
       <p class="kv" id="harvestProgText"></p>
       <div class="termbox" id="harvestProc" style="display:none"></div>
-      <p class="kv" id="harvestSummary" style="text-align:right"></p>
+      <p class="kv" id="harvestSummary" style="display:flex;justify-content:space-between;align-items:center;gap:8px"></p>
 </div></div>`;
   } catch (e) { $("#userRoot").innerHTML = `<p class="muted">Gagal memuat: ${esc(e.message)}</p>`; }
 }
