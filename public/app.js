@@ -86,13 +86,13 @@ async function loadUser() {
     $("#userRoot").innerHTML = `
     <div class="section"><h2>Panen Akun</h2><p class="sub">Panen akun provider — tiap panen membuat 1 akun baru dengan email sementara yang berbeda-beda. Email & sandi tidak pernah ditampilkan. Pilih bebas 1–50 (maks 50).</p>
       <div class="card">
-        <div><label>Provider</label><div class="tier-picker"><button class="btn btn-plum tier-picker-btn" id="tierPickerBtn" onclick="toggleTierPicker()">Tier: <span id="tierPickerLabel">Gratis • 2 Model</span> ▾</button><div id="harvestProviderSidebar" class="tier-sidebar tier-picker-pop" style="display:none"></div></div></div>
-        <div style="margin-top:14px"><label>Jumlah akun (1–50)</label><div class="stepper">
+        <div style="text-align:center"><label>Provider</label><div class="tier-picker"><button class="btn btn-plum tier-picker-btn" id="tierPickerBtn" onclick="toggleTierPicker()">Tier: <span id="tierPickerLabel">Gratis • 2 Model</span> ▾</button><div id="harvestProviderSidebar" class="tier-sidebar tier-picker-pop" style="display:none"></div></div></div>
+        <div style="margin-top:14px;text-align:center"><label>Jumlah akun (1–50)</label><div class="stepper">
           <button type="button" onclick="stepCount(-1)">−</button>
           <input id="harvestCount" type="number" min="1" max="50" value="1" oninput="clampCount(this)" />
           <button type="button" onclick="stepCount(1)">+</button></div></div>
       </div>
-      <div style="margin-top:14px"><button class="btn btn-plum" id="harvestBtn" onclick="doUserHarvest()">Panen Akun</button></div>
+      <div style="margin-top:14px;text-align:center"><button class="btn btn-plum" id="harvestBtn" onclick="doUserHarvest()">Panen Akun</button></div>
       <div class="progress" style="margin-top:14px"><div id="harvestProg"></div></div>
       <p class="kv" id="harvestProgText"></p>
       <div class="termbox" id="harvestProc" style="display:none"></div>
