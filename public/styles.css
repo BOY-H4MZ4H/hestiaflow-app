@@ -116,11 +116,14 @@ footer img{width:30px;height:30px;border-radius:50%;object-fit:cover;border:1.5p
 .termbox-dots{color:var(--gold)}
 .termbox-head button{margin-left:auto}
 .endpoint-list{display:flex;flex-direction:column;gap:8px}
-.endpoint-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--ivory);flex-wrap:wrap}
+.endpoint-row{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--ivory)}
+.endpoint-row-top{display:flex;align-items:center;gap:10px}
+.endpoint-row-top .endpoint-path{flex:1;min-width:0}
+.endpoint-row-top button{flex-shrink:0}
 .endpoint-method{padding:3px 8px;border-radius:6px;font-size:11px;font-weight:800;color:#fff}
 .endpoint-method.post{background:var(--plum)}
 .endpoint-method.get{background:var(--gold);color:var(--plum)}
 .endpoint-path{font-family:monospace;font-weight:700;color:var(--plum)}
-.endpoint-desc{color:var(--muted);font-size:12px;margin-left:auto}
+.endpoint-desc{color:var(--muted);font-size:12px}
 
 .copy-snippet-btn{padding:4px 10px;border:1px solid var(--gold);border-radius:999px;background:transparent;color:var(--gold2);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
