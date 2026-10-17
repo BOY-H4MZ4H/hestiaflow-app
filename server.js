@@ -452,7 +452,7 @@ app.post("/v1/chat/completions", async (req, res) => {
   if (!key) return res.status(401).json({ error: { message: "Incorrect API key provided.", type: "invalid_request_error", param: null, code: "invalid_api_key" } });
   const { model, messages, stream } = req.body || {};
   if (!model || !Array.isArray(messages) || !messages.length) return res.status(400).json({ error: { message: "model and messages are required.", type: "invalid_request_error", param: null, code: "invalid_request" } });
-  if (stream) return res.status(400).json({ error: { message: "Streaming is not supported yet. Send stream:false.", type: "invalid_request_error", param: "stream", code: "streaming_unsupported" } });
+  // Streaming (SSE passthrough) — automatic, no admin setting needed.
   const allowed = gatewayKeyModels(key);
   if (allowed.length && !allowed.includes(model)) return res.status(404).json({ error: { message: `Model '${model}' is not included in this API key.`, type: "invalid_request_error", param: "model", code: "model_not_found" } });
   const provider = key.provider_id ? db.prepare("SELECT * FROM providers WHERE id=?").get(key.provider_id) : null;
@@ -465,19 +465,33 @@ app.post("/v1/chat/completions", async (req, res) => {
   if (!upstreamUrl || !upstreamKey) return res.status(502).json({ error: { message: "Upstream provider not configured. Operator must configure the provider upstream (Base URL + API key) in Panel Admin.", type: "upstream_error", param: null, code: "upstream_not_configured" } });
   try {
     const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 60000);
+    const t = setTimeout(() => ctl.abort(), 120000);
     const r = await fetch(upstreamUrl.replace(/\/$/, "") + "/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${upstreamKey}` },
       body: JSON.stringify(req.body),
       signal: ctl.signal,
     });
+    if (stream && r.body) {
+      // SSE passthrough: stream provider chunks straight to the client.
+      res.writeHead(r.status, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+      const reader = r.body.getReader();
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          res.write(Buffer.from(value));
+        }
+      } finally { clearTimeout(t); }
+      return res.end();
+    }
     clearTimeout(t);
     const data = await r.json().catch(() => ({}));
     return res.status(r.status).json(data);
   } catch (e) {
     console.error("[gateway] chat forward failed:", e && e.message);
-    return res.status(502).json({ error: { message: "Upstream request failed.", type: "upstream_error", param: null, code: "upstream_request_failed" } });
+    if (!res.headersSent) return res.status(502).json({ error: { message: "Upstream request failed.", type: "upstream_error", param: null, code: "upstream_request_failed" } });
+    return res.end();
   }
 });
 
