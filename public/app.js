@@ -94,7 +94,7 @@ async function loadUser() {
     const provOpts = TIERS.flatMap((t) => (t.providers || []).map((p) => `<option value="${p.id}">${esc(t.name)} · ${esc(p.brand)} (${p.modelCount} model)</option>`)).join("");
     $("#userRoot").innerHTML = `
     <div class="section"><h2>Kunci Saya</h2><p class="sub">API key HestiaFlow milikmu — Base URL HestiaFlow + Credit.</p>
-      <div id="keyList">${keys.keys.length ? keyBoxAll(keys.keys) + keys.keys.map(keyCard).join("") : `<p class="muted">Belum ada kunci. Panen akun di bawah untuk mendapatkan API key.</p>`}</div></div>
+      <div id="keyList">${keys.keys.length ? keyBoxAll(keys.keys) + `<p class="kv">Base URL: ${esc(SETTINGS.baseUrl)} <button class="btn btn-ghost btn-sm" onclick="copyText('${esc(SETTINGS.baseUrl)}',this)">Salin Base URL</button></p>` : `<p class="muted">Belum ada kunci. Panen akun di bawah untuk mendapatkan API key.</p>`}</div></div>
     <div class="section"><h2>Panen Akun</h2><p class="sub">Panen akun provider — tiap panen membuat 1 akun baru dengan email sementara yang berbeda-beda. Email & sandi tidak pernah ditampilkan. Pilih bebas 1–50 (maks 50).</p>
       <div class="card"><div class="row">
         <div><label>Provider</label><select id="harvestProvider">${provOpts}</select></div>
@@ -111,19 +111,7 @@ async function loadUser() {
   } catch (e) { $("#userRoot").innerHTML = `<p class="muted">Gagal memuat: ${esc(e.message)}</p>`; }
 }
 function keyBoxAll(keys) {
-  return `<div class="keybox" style="margin-bottom:12px"><div class="lbl">API key HestiaFlow</div><div class="key-list-scroll">${keys.map((k) => `<div class="key-row"><span class="key-row-tag">${esc(k.tierSlug || "")} · ${esc(k.providerBrand || "")}</span><span class="key-row-val">${esc(k.key)}</span></div>`).join("")}</div></div>`;
-}
-function keyCard(k) {
-  return `<div class="card"><div class="row" style="align-items:center"><div>
-    <span class="badge ${k.tierSlug === "gratis" ? "gratis" : k.tierSlug === "plus" ? "plus" : "premium"}">${esc(k.tierSlug || "")}</span>
-    <span class="chip">${esc(k.providerBrand || "")}</span>
-    <span class="chip">Credit: ${k.credit != null ? esc(k.credit) : "Tidak dinyatakan"}</span></div>
-    <div style="text-align:right"><span class="muted">${esc(k.createdAt || "")}</span></div></div>
-    <div style="margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="copyText('${esc(k.key)}',this)">Salin Key</button>
-    <button class="btn btn-ghost btn-sm" onclick="copyText('${esc(SETTINGS.baseUrl)}',this)">Salin Base URL</button></div>
-    <p class="kv">Base URL: ${esc(SETTINGS.baseUrl)}</p>
-    <div><span class="chip auto">MODEL PROVIDER — TERPASANG OTOMATIS</span><span class="chip">Sumber: ${esc(k.modelSource || "none")}</span><span class="chip">${k.modelCount} model</span></div>
-    <div>${(k.models || []).map((m) => `<span class="chip model">${esc(m)}</span>`).join("") || `<p class="kv">Model belum terdeteksi otomatis</p>`}</div></div>`;
+  return `<div class="keybox" style="margin-bottom:12px"><div class="lbl">API key HestiaFlow</div><div class="key-list-scroll">${keys.map((k) => `<div class="key-row"><span class="key-row-tag">${esc(k.tierSlug || "")} · ${esc(k.providerBrand || "")} · Credit: ${k.credit != null ? esc(k.credit) : "Tidak dinyatakan"}</span><span class="key-row-val">${esc(k.key)}</span><button class="btn btn-ghost btn-sm" style="margin-top:4px" onclick="copyText('${esc(k.key)}',this)">Salin Key</button></div>`).join("")}</div></div>`;
 }
 function clampCount(el) { let v = parseInt(el.value, 10); if (isNaN(v)) v = 1; el.value = Math.max(1, Math.min(50, v)); }
 function stepCount(d) { const el = $("#harvestCount"); if (!el) return; el.value = Math.max(1, Math.min(50, (parseInt(el.value, 10) || 1) + d)); }
