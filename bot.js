@@ -49,7 +49,7 @@ async function handleUpdate(db, u) {
       await tg("sendPhoto", { chat_id: chatId, photo: WEB_URL + "qris.jpg", caption: `Assalamualaikum! Terima kasih sudah mampir. Kamu mau pesan Paket ${TIER_NAME[slug]} ya.\n\nHarga: ${(TIER_PRICE[slug] || {}).amount} (${(TIER_PRICE[slug] || {}).dur})\n\nSilakan scan QR di atas untuk bayar. Setelah bayar, kirim foto bukti pembayaran ke sini.` });
       await sendMsg(chatId, `Setelah bayar, kirim foto bukti pembayaran ke sini ya.`, true);
     } else {
-      await sendMsg(chatId, `Assalamualaikum! Ada yang bisa aku bantu? Ini bot <b>HestiaFlow</b>.\n\nPilih paket di web (klik tombol <b>Pesan</b> di kartu tier), lalu kembali ke sini untuk kirim bukti pembayaran.\n\nPerintah: /id (lihat ID Telegram kamu), /myorders (lihat pesananmu), /grup (link grup).`, true);
+      await sendMsg(chatId, `Assalamualaikum! Ada yang bisa aku bantu? Ini bot <b>HestiaFlow</b>.\n\n<b>Pilihan Paket Tier:</b>\n• <b>Gratis</b> — Luna (2 model) — GRATIS\n• <b>Plus</b> — Aurora (30 model) — <b>Rp 5.000</b> (3 Hari)\n• <b>Pro</b> — Nova (49 model) — <b>Rp 8.000</b> (1 Minggu)\n• <b>Premium</b> — Stella (514 model) — <b>Rp 15.000</b> (2 Minggu)\n\nPilih paket di web (klik tombol <b>Pesan</b> di kartu tier), lalu kembali ke sini untuk kirim bukti pembayaran.\n\nPerintah: /id (lihat ID Telegram kamu), /myorders (lihat pesananmu), /grup (link grup).`, true);
     }
     return;
   }
