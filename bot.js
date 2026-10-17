@@ -46,7 +46,8 @@ async function handleUpdate(db, u) {
     if (payload.startsWith("hestiaflow_")) slug = payload.slice("hestiaflow_".length).toLowerCase();
     if (slug && TIER_PRICE[slug]) {
       db.prepare("INSERT OR REPLACE INTO bot_state (tg_user_id, last_tier_slug, updated_at) VALUES (?, ?, ?)").run(fromId, slug, new Date().toISOString());
-      await sendMsg(chatId, `Assalamualaikum! Terima kasih sudah mampir. Kamu mau pesan <b>Paket ${TIER_NAME[slug]}</b> ya.\n\n${tierInfo(slug)}\n\nKirim foto bukti pembayaran ke sini setelah bayar.`, true);
+      await tg("sendPhoto", { chat_id: chatId, photo: WEB_URL + "qris.jpg", caption: `Assalamualaikum! Terima kasih sudah mampir. Kamu mau pesan Paket ${TIER_NAME[slug]} ya.\n\nHarga: ${(TIER_PRICE[slug] || {}).amount} (${(TIER_PRICE[slug] || {}).dur})\n\nSilakan scan QR di atas untuk bayar. Setelah bayar, kirim foto bukti pembayaran ke sini.` });
+      await sendMsg(chatId, `Setelah bayar, kirim foto bukti pembayaran ke sini ya.`, true);
     } else {
       await sendMsg(chatId, `Assalamualaikum! Ada yang bisa aku bantu? Ini bot <b>HestiaFlow</b>.\n\nPilih paket di web (klik tombol <b>Pesan</b> di kartu tier), lalu kembali ke sini untuk kirim bukti pembayaran.\n\nPerintah: /id (lihat ID Telegram kamu), /myorders (lihat pesananmu), /grup (link grup).`, true);
     }
