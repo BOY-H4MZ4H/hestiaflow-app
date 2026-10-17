@@ -196,16 +196,16 @@ app.get("/auth/google/callback", async (req, res) => {
   try {
     const raw = req.headers.cookie || "";
     const stateCookie = (raw.match(/(?:^|;\s*)oauth_state=([^;]+)/) || [])[1];
-    if (!req.query.code || !req.query.state || req.query.state !== decodeURIComponent(stateCookie || "")) return res.redirect("/?oauth=error");
+    if (!req.query.code || !req.query.state || req.query.state !== decodeURIComponent(stateCookie || "")) { console.error("[oauth] state mismatch", { hasCode: Boolean(req.query.code), hasState: Boolean(req.query.state), hasCookie: Boolean(stateCookie) }); return res.redirect("/?oauth=error"); }
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ code: req.query.code, client_id: GOOGLE_CLIENT_ID, client_secret: GOOGLE_CLIENT_SECRET, redirect_uri: GOOGLE_REDIRECT_URI, grant_type: "authorization_code" }),
     });
     const tokens = await tokenRes.json();
-    if (!tokens.access_token) return res.redirect("/?oauth=error");
+    if (!tokens.access_token) { console.error("[oauth] token exchange failed", { status: tokenRes.status, error: tokens.error, error_description: tokens.error_description }); return res.redirect("/?oauth=error"); }
     const meRes = await fetch("https://openidconnect.googleapis.com/v1/userinfo", { headers: { Authorization: `Bearer ${tokens.access_token}` } });
     const me = await meRes.json();
-    if (!me.email) return res.redirect("/?oauth=error");
+    if (!me.email) { console.error("[oauth] userinfo failed", { status: meRes.status }); return res.redirect("/?oauth=error"); }
     const isAdmin = ADMIN_EMAILS.includes(String(me.email).toLowerCase()) ? 1 : 0;
     let user = db.prepare("SELECT * FROM users WHERE email=?").get(me.email);
     if (!user) {
@@ -217,7 +217,7 @@ app.get("/auth/google/callback", async (req, res) => {
     }
     res.cookie("hestia_session", signSession(user.id), { httpOnly: true, sameSite: "lax", path: "/", maxAge: 30 * 24 * 3600 * 1000 });
     res.redirect("/");
-  } catch (e) { res.redirect("/?oauth=error"); }
+  } catch (e) { console.error("[oauth] callback exception", e && e.message); res.redirect("/?oauth=error"); }
 });
 app.post("/api/logout", (req, res) => {
   res.clearCookie("hestia_session", { path: "/" });
