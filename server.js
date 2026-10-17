@@ -174,12 +174,18 @@ let _proxyCache = { list: [], at: 0 };
 async function fetchProxyList() {
   // Proxyscrape free proxy list (operator's own source). Cache 5 min.
   if (_proxyCache.list.length && Date.now() - _proxyCache.at < 300000) return _proxyCache.list;
-  try {
-    const r = await fetch("https://api.proxyscrape.com/v3/free-proxy-list/get?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all", { signal: AbortSignal.timeout(15000) });
-    const txt = await r.text();
-    const list = txt.split(/\r?\n/).map((s) => s.trim()).filter((s) => /^\d+\.\d+\.\d+\.\d+:\d+$/.test(s));
-    if (list.length) { _proxyCache = { list, at: Date.now() }; return list; }
-  } catch {}
+  const urls = [
+    "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=6000&country=all&ssl=all&anonymity=all",
+    "https://api.proxyscrape.com/v3/free-proxy-list/get?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all",
+  ];
+  for (const u of urls) {
+    try {
+      const r = await fetch(u, { signal: AbortSignal.timeout(15000) });
+      const txt = await r.text();
+      const list = txt.split(/\r?\n/).map((s) => s.trim()).filter((s) => /^\d+\.\d+\.\d+\.\d+:\d+$/.test(s));
+      if (list.length) { _proxyCache = { list, at: Date.now() }; return list; }
+    } catch {}
+  }
   return _proxyCache.list;
 }
 function proxyDispatcher(proxyHostPort) {
