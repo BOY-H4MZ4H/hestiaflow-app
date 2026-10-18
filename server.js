@@ -51,6 +51,11 @@ function seed() {
     if (!cols.includes("tier_slug")) db.prepare("ALTER TABLE users ADD COLUMN tier_slug TEXT DEFAULT 'gratis'").run();
     db.prepare("UPDATE users SET tier_slug='gratis' WHERE tier_slug IS NULL OR tier_slug=''").run();
   } catch {}
+  // Migrasi 2026-10-18: api_keys.expires_at — batasi masa pakai key (Gratis: 2 hari).
+  try {
+    const kcols = db.prepare("PRAGMA table_info(api_keys)").all().map((c) => c.name);
+    if (!kcols.includes("expires_at")) db.prepare("ALTER TABLE api_keys ADD COLUMN expires_at TEXT").run();
+  } catch {}
   // Migrasi: tambah provider Nova (Tier Pro). Model + credit user-facing (bukan secret).
   // upstream_url Nova TIDAK ditulis di kode (anti-bocor) — di-set via env PROVIDER_NOVA_UPSTREAM_URL.
   // Hapus provider Nova dobel (kalau migrasi lama sempat jalan 2x) — sisakan 1 (id terkecil).
@@ -681,7 +686,7 @@ async function tryAutoRegister(provider, tempEmail, tempPassword) {
   return { upstreamApiKey: token, upstreamBaseUrl: base };
 }
 
-const TIER_HARVEST_LIMIT = { gratis: 2, plus: 10, pro: 20, premium: 50 };
+const TIER_HARVEST_LIMIT = { gratis: 100, plus: 500, pro: 1500, premium: 5000 };
 const TIER_RANK = { gratis: 0, plus: 1, pro: 2, premium: 3 };
 const VOUCHER_DAYS = { plus: 3, pro: 7, premium: 14 };
 function effectiveTierSlug(u) { if (!u) return "gratis"; if (u.tier_expires_at && new Date(u.tier_expires_at) < new Date()) return "gratis"; return u.tier_slug || "gratis"; }
@@ -726,8 +731,10 @@ async function doHarvest({ userId, providerId, count }) {
     const keyValue = `hgw-${randHex(16)}`;
     const keyPrefix = keyValue.slice(0, 12);
     const credit = provider.default_credit != null ? provider.default_credit : null;
-    const k = db.prepare("INSERT INTO api_keys (user_id,provider_id,tier_id,key_value,key_prefix,credit,models_json,model_source,model_count) VALUES (?,?,?,?,?,?,?,?,?)")
-      .run(userId, providerId, provider.tier_id, keyValue, keyPrefix, credit, JSON.stringify(models), source, provider.model_count);
+    // Gratis (tanpa voucher): masa pakai 2 hari aja (2026-10-18).
+    const expiresAt = (tier && tier.slug === "gratis") ? new Date(Date.now() + 2*24*60*60*1000).toISOString() : null;
+    const k = db.prepare("INSERT INTO api_keys (user_id,provider_id,tier_id,key_value,key_prefix,credit,models_json,model_source,model_count,expires_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
+      .run(userId, providerId, provider.tier_id, keyValue, keyPrefix, credit, JSON.stringify(models), source, provider.model_count, expiresAt);
     let auto = null;
     try { auto = await tryAutoRegister(provider, tempEmail, tempPassword); } catch { auto = null; }
     if (auto) console.log(`[harvest] auto-register OK provider=${provider.id} key_id=${k.lastInsertRowid}`);
@@ -1048,7 +1055,10 @@ function gatewayAuth(req) {
   const h = req.headers.authorization || "";
   const m = h.match(/^Bearer\s+(.+)$/i);
   if (!m) return null;
-  return db.prepare("SELECT * FROM api_keys WHERE key_value=? AND status='active'").get(m[1].trim()) || null;
+  const key = db.prepare("SELECT * FROM api_keys WHERE key_value=? AND status='active'").get(m[1].trim()) || null;
+  // Cek kadaluarsa (Gratis: 2 hari) — 2026-10-18.
+  if (key && key.expires_at && new Date(key.expires_at) < new Date()) key._expired = true;
+  return key;
 }
 function gatewayKeyModels(key) {
   let models = [];
@@ -1062,6 +1072,7 @@ function gatewayKeyModels(key) {
 app.get("/v1/models", (req, res) => {
   const key = gatewayAuth(req);
   if (!key) return res.status(401).json({ error: { message: "Incorrect API key provided. You can find your HestiaFlow API key at Halaman Pengguna.", type: "invalid_request_error", param: null, code: "invalid_api_key" } });
+  if (key._expired) return res.status(401).json({ error: { message: "API key sudah kadaluarsa (Gratis: 2 hari). Panen lagi atau upgrade paket!", type: "invalid_request_error", param: null, code: "key_expired" } });
   const models = gatewayKeyModels(key);
   const now = Math.floor(Date.now() / 1000);
   res.json({ object: "list", data: models.map((id) => ({ id, object: "model", created: now, owned_by: "hestiaflow" })) });
@@ -1069,6 +1080,7 @@ app.get("/v1/models", (req, res) => {
 app.post("/v1/chat/completions", async (req, res) => {
   const key = gatewayAuth(req);
   if (!key) return res.status(401).json({ error: { message: "Incorrect API key provided.", type: "invalid_request_error", param: null, code: "invalid_api_key" } });
+  if (key._expired) return res.status(401).json({ error: { message: "API key sudah kadaluarsa (Gratis: 2 hari). Panen lagi atau upgrade paket!", type: "invalid_request_error", param: null, code: "key_expired" } });
   const { model, messages, stream } = req.body || {};
   if (!model || !Array.isArray(messages) || !messages.length) return res.status(400).json({ error: { message: "model and messages are required.", type: "invalid_request_error", param: null, code: "invalid_request" } });
   // Streaming (SSE passthrough) — automatic, no admin setting needed.
