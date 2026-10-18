@@ -67,6 +67,20 @@ function seed() {
   // Migrasi 2026-10-18: Aurora GANTI jadi RooyAI (brand tetap "Aurora", provider di baliknya RooyAI).
   // 30 model (terverifikasi via /v1/models + chat). $0.20 per akun. Auto-register via Supabase (no verifikasi).
   db.prepare("UPDATE providers SET model_count=?, model_list_json=?, model_notes_json=?, credit_note=?, default_credit=? WHERE brand_name=?").run(30, JSON.stringify(AURORA_MODELS), JSON.stringify({}), "$0.20 per akun terverifikasi.", 200000, "Aurora");
+  // Migrasi 2026-10-18: Luna GANTI jadi Zerolimit (ZeroLimitAI + bestllmapi.com) untuk tier Gratis.
+  // 6 model (5 ZeroLimitAI :free + 1 bestllmapi.com "uncensored"). 100 calls/hari, 7 hari per akun. Auto-register full otomatis (no verifikasi email).
+  db.prepare("UPDATE providers SET brand_name=?, tagline=?, model_count=?, model_list_json=?, model_notes_json=?, credit_note=?, default_credit=?, upstream_url=? WHERE brand_name=?").run(
+    "Zerolimit",
+    "6 model gratis! 5 ZeroLimitAI + 1 BestLLM.",
+    6,
+    JSON.stringify(["google/gemma-4-31b-it:free","google/gemma-4-26b-a4b-it:free","dots-studio/dots-3-note-preview:free","cohere/north-mini-code:free","xingchen-agi/xing4.0-29b-a4b:free","uncensored"]),
+    JSON.stringify({}),
+    "100 calls/hari, 7 hari per akun.",
+    null,
+    "https://www.zerolimitai.com/api/v1",
+    "Luna"
+  );
+  db.prepare("UPDATE tiers SET max_models=? WHERE slug=?").run(6, "gratis");
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("TIER GRATIS", "gratis");
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("TIER PLUS", "plus");
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("★ TIER PREMIUM", "premium");
