@@ -699,6 +699,12 @@ async function doHarvest({ userId, providerId, count }) {
   if (!models) models = [];
   // Gratis tier: enforce max 2 models.
   if (tier && tier.max_models != null && models.length > tier.max_models) models = models.slice(0, tier.max_models);
+  // Gabungan Gratis (2026-10-18): ZeroLimitAI + bestllmapi.com ("uncensored").
+  // Kalau provider brand "zerolimit", tambahkan model "uncensored" (dari bestllmapi.com).
+  const isZerolimitCombine = (provider.brand_name || "").toLowerCase() === "zerolimit";
+  if (isZerolimitCombine && !models.includes("uncensored")) {
+    models = [...models, "uncensored"];
+  }
   const logs = []; const keys = [];
   for (let i = 1; i <= count; i++) {
     const tempEmail = `hf_${randStr(10)}@hestiaflow.internal`;
@@ -1068,6 +1074,13 @@ app.post("/v1/chat/completions", async (req, res) => {
     if (w) upstreamKey = w.upstream_api_key;
   }
   if (!upstreamUrl || !upstreamKey) return res.status(502).json({ error: { message: "Upstream provider not configured. Operator must configure the provider upstream (Base URL + API key) in Panel Admin.", type: "upstream_error", param: null, code: "upstream_not_configured" } });
+  // Gabungan Gratis (2026-10-18): model "uncensored" -> bestllmapi.com (bukan ZeroLimitAI).
+  // Provider ZeroLimitAI (auto-register) + bestllmapi.com (manual key) digabung di tier Gratis.
+  if (model === "uncensored") {
+    const blUrl = process.env.PROVIDER_BESTLLM_UPSTREAM_URL || "https://api.bestllmapi.com/v1";
+    const blKey = process.env.PROVIDER_BESTLLM_UPSTREAM_KEY;
+    if (blUrl && blKey) { upstreamUrl = blUrl; upstreamKey = blKey; }
+  }
   try {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 120000);
