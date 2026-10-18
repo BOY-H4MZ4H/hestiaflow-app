@@ -507,6 +507,63 @@ async function tryAutoRegisterRooyai(provider) {
   } catch (e) { console.log("[rooyai] exception", e && e.message); return null; }
 }
 
+// ZeroLimitAI auto-register (2026-10-18). Flow: register (no CAPTCHA, no email verification required)
+// -> NextAuth login (CSRF + credentials) -> POST /api/keys (one key per free account) -> verify /v1/models.
+async function tryAutoRegisterZerolimit(provider) {
+  const siteBase = "https://www.zerolimitai.com";
+  const apiBase = siteBase + "/api/v1";
+  const tempEmail = `zerolimit${Date.now()}${Math.floor(Math.random()*9999)}@tempomail.id`;
+  const tempPassword = `Zerolimit${Math.floor(100000+Math.random()*900000)}@#`;
+  const tempName = "HestiaFlow User";
+  const jar = {};
+  const saveCookies = (res) => {
+    try {
+      const arr = (res.headers.getSetCookie ? res.headers.getSetCookie() : []);
+      for (const sc of arr) {
+        const pair = sc.split(";")[0];
+        const idx = pair.indexOf("=");
+        if (idx > 0) jar[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim();
+      }
+    } catch {}
+  };
+  const cookieHdr = () => Object.entries(jar).map(([k,v]) => k + "=" + v).join("; ");
+  try {
+    const rg = await fetch(siteBase + "/api/auth/register", {
+      method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "HestiaFlow/1.0" },
+      body: JSON.stringify({ name: tempName, email: tempEmail, password: tempPassword })
+    });
+    saveCookies(rg);
+    const rj = await rg.json().catch(() => null);
+    if (!rg.ok || !rj || !rj.id) { console.log("[zerolimit] register failed"); return null; }
+    const cr = await fetch(siteBase + "/api/auth/csrf", { headers: { "User-Agent": "HestiaFlow/1.0", "Cookie": cookieHdr() } });
+    saveCookies(cr);
+    const cj = await cr.json().catch(() => null);
+    const csrf = cj && cj.csrfToken;
+    if (!csrf) { console.log("[zerolimit] no csrf"); return null; }
+    const form = new URLSearchParams({ csrfToken: csrf, email: tempEmail, password: tempPassword, json: "true" });
+    const lg = await fetch(siteBase + "/api/auth/callback/credentials", {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "HestiaFlow/1.0", "Cookie": cookieHdr() },
+      body: form.toString(), redirect: "manual"
+    });
+    saveCookies(lg);
+    await lg.text().catch(() => "");
+    const kk = await fetch(siteBase + "/api/keys", {
+      method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "HestiaFlow/1.0", "Cookie": cookieHdr() },
+      body: JSON.stringify({ name: "HestiaFlow" })
+    });
+    const kj = await kk.json().catch(() => null);
+    const newKey = kj && kj.key;
+    if (!kk.ok || !newKey) { console.log("[zerolimit] key create failed"); return null; }
+    let verified = false;
+    try {
+      const vr = await fetch(apiBase + "/models", { headers: { "Authorization": "Bearer " + newKey, "User-Agent": "HestiaFlow/1.0" } });
+      verified = vr.ok;
+    } catch {}
+    console.log(`[zerolimit] auto-register ok, verified=${verified}`);
+    return { upstreamApiKey: newKey, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: verified };
+  } catch (e) { console.log("[zerolimit] exception", e && e.message); return null; }
+}
+
 // Auto-register a real provider account (server-side, no admin config).
 // Tries generic signup/login/key endpoints against the provider's upstream_url
 // (operator-configured in DB). Returns { upstreamApiKey, upstreamBaseUrl } or null.
@@ -530,6 +587,12 @@ async function tryAutoRegister(provider, tempEmail, tempPassword) {
   if ((provider.brand_name || "").toLowerCase() === "aurora") {
     const rooyai = await tryAutoRegisterRooyai(provider);
     if (rooyai) return rooyai;
+    return null;
+  }
+  // Zerolimit = ZeroLimitAI (2026-10-18, untuk tier Gratis). Register -> NextAuth login -> POST /api/keys.
+  if ((provider.brand_name || "").toLowerCase() === "zerolimit") {
+    const zl = await tryAutoRegisterZerolimit(provider);
+    if (zl) return zl;
     return null;
   }
   const tryFetch = async (url, opts, ms) => {
