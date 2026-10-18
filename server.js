@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 `);
 
 // ---------- seed ----------
-const AURORA_MODELS = ["claude-fable-5","claude-haiku-4-5-20251001","claude-opus-4-6","claude-opus-4.6","claude-opus-5","claude-sonnet-4-6","claude-sonnet-4.6","DeepSeek-V4-Flash","DeepSeek-V4-pro","doubao-seed-2-0-lite-260215","doubao-seedance-2-0-260128","gemini-2.5-flash","gemini-2.5-flash-image","gemini-2.5-flash-lite","gemini-3-flash-preview","gemini-3-pro-image","gemini-3-pro-image-preview","gemini-3.1-pro-preview","gemini-3.8-flash","GLM-5","gpt-5.4","gpt-5.6-luna","gpt-image-2","imagen-4.0-generate-001","Kimi-K2.5","kimi-k3","MiniMax-H3","MiniMax-M2.7","qwen3.5-plus","qwen3.6-plus"];
+const AURORA_MODELS = ["deepseek-v3.1","deepseek-v3.2","deepseek-v4-flash","deepseek-v4-pro","gemma-4-31b-it","gemma-4-31B-it","google/gemini-3-flash-preview","google/gemini-3.1-flash-lite","google/gemini-embedding-001","gpt-4o-mini","gpt-oss-120b","llama-3.3-70b-versatile","mimo-v2.5","mimo-v2.5-pro","minimax-m2.7","moonshotai.kimi-k2.5","moonshotai/kimi-k2.6","nano-banana-2","nano-banana-2-lite","nano-banana-pro","omni-flash","qwen3.8-max","S1-Base-Pro","veo-3.1-fast","veo-3.1-lite","veo-3.1-quality","whisper-large-v3","whisper-large-v3-turbo","xai/grok-imagine-image","rooyai-image"];
 function seed() {
   // Migrasi: tabel vouchers + users.tier_expires_at (masa berlaku paket dari vocher).
   db.prepare("CREATE TABLE IF NOT EXISTS vouchers (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE, tier_slug TEXT, duration_days INTEGER, used INTEGER DEFAULT 0, used_by INTEGER, used_at TEXT, created_at TEXT DEFAULT (datetime('now')))").run();
@@ -64,6 +64,9 @@ function seed() {
   db.prepare("UPDATE providers SET credit_note=? WHERE brand_name=?").run("Always-free BETA", "Luna");
   // REVERT 2026-10-18: Luna balik ke AI4ALL (2 model, Always-free BETA). Public AI dibatalkan (operator takut komplain pembeli).
   db.prepare("UPDATE providers SET model_count=?, model_list_json=?, model_notes_json=?, credit_note=?, default_credit=? WHERE brand_name=?").run(2, JSON.stringify(["qwen3-coder:30b","llama3.2:3b"]), JSON.stringify({"qwen3-coder:30b":"Muncul di website provider. Chat terverifikasi jalan.","llama3.2:3b":"Terdaftar di /v1/models. Tes chat gagal (service_unavailable)."}), "Always-free BETA", null, "Luna");
+  // Migrasi 2026-10-18: Aurora GANTI jadi RooyAI (brand tetap "Aurora", provider di baliknya RooyAI).
+  // 30 model (terverifikasi via /v1/models + chat). $0.20 per akun. Auto-register via Supabase (no verifikasi).
+  db.prepare("UPDATE providers SET model_count=?, model_list_json=?, model_notes_json=?, credit_note=?, default_credit=? WHERE brand_name=?").run(30, JSON.stringify(AURORA_MODELS), JSON.stringify({}), "$0.20 per akun terverifikasi.", 200000, "Aurora");
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("TIER GRATIS", "gratis");
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("TIER PLUS", "plus");
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("★ TIER PREMIUM", "premium");
@@ -80,7 +83,7 @@ function seed() {
     "Always-free BETA", null, 1);
   insProv.run(p, "Aurora", "Cahaya pertama di gerbang kecerdasan.", 30,
     JSON.stringify(AURORA_MODELS), JSON.stringify({}),
-    "200.000 token per akun terverifikasi.", 200000, 1);
+    "$0.20 per akun terverifikasi.", 200000, 1);
   insProv.run(pr, "Stella", "Bintang paling terang di langit HestiaFlow.", 514,
     JSON.stringify([]), JSON.stringify({}),
     "30.000 token/hari per akun terverifikasi.", 30000, 1);
@@ -444,6 +447,66 @@ async function tryAutoRegisterNova(provider) {
   return { upstreamApiKey: key, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: verified };
 }
 
+// Auto-register RooyAI (2026-10-18, gantiin Aurora/Tokit yang IP-nya diblokir).
+// Flow (terverifikasi via curl, no verifikasi, no CAPTCHA):
+// 1. POST https://llm.rooyai.com/api/auth/register {name,email,password} → {success:true}
+// 2. POST https://authe.rooyai.com/auth/v1/token?grant_type=password (Supabase) → {access_token}
+// 3. Decode JWT → user_id (sub)
+// 4. Generate key "sk-" + 32 alfanumerik, SHA-256 → key_hash, prefix 12 char
+// 5. POST https://authe.rooyai.com/rest/v1/api_keys {user_id,key_hash,key_prefix,name} → 201
+// Key plaintext (langkah 4) dipakai sebagai upstreamApiKey. Anon key Supabase = public (ada di JS frontend).
+async function tryAutoRegisterRooyai(provider) {
+  const apiBase = "https://llm.rooyai.com/v1";
+  const supaAnon = process.env.ROOYAI_SUPABASE_ANON_KEY || "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzg3NzIzNDIwLCJleHAiOjIxMDMwODM0MjB9.g5QfJJ3tuQKZf4m3K-k1lO60ixpkP6-g1fqnMKgF-oI";
+  const tempEmail = `rooyai${Date.now()}${Math.floor(Math.random()*9999)}@tempomail.id`;
+  const tempPassword = `Rooyai${Math.floor(100000+Math.random()*900000)}@#`;
+  const tempName = "HestiaFlow User";
+  try {
+    // 1) Register
+    const rg = await fetch("https://llm.rooyai.com/api/auth/register", {
+      method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "HestiaFlow/1.0" },
+      body: JSON.stringify({ name: tempName, email: tempEmail, password: tempPassword })
+    });
+    const rj = await rg.json().catch(() => null);
+    if (!rg.ok || !rj || rj.success !== true) { console.log("[rooyai] register failed"); return null; }
+    // 2) Supabase login
+    const lg = await fetch("https://authe.rooyai.com/auth/v1/token?grant_type=password", {
+      method: "POST", headers: { "apikey": supaAnon, "Content-Type": "application/json" },
+      body: JSON.stringify({ email: tempEmail, password: tempPassword })
+    });
+    const lj = await lg.json().catch(() => null);
+    const atoken = lj && lj.access_token;
+    if (!lg.ok || !atoken) { console.log("[rooyai] login failed"); return null; }
+    // 3) user_id dari JWT sub
+    let uid = null;
+    try {
+      const payload = JSON.parse(Buffer.from(atoken.split(".")[1], "base64").toString());
+      uid = payload.sub;
+    } catch {}
+    if (!uid) { console.log("[rooyai] no uid"); return null; }
+    // 4) Generate key + hash
+    const rand = [...require("crypto").randomBytes(32)].map(b => "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"[b % 62]).join("");
+    const newKey = "sk-" + rand;
+    const keyHash = require("crypto").createHash("sha256").update(newKey).digest("hex");
+    const keyPrefix = newKey.slice(0, 12);
+    // 5) INSERT api_keys via Supabase REST
+    const ik = await fetch("https://authe.rooyai.com/rest/v1/api_keys", {
+      method: "POST",
+      headers: { "apikey": supaAnon, "Authorization": "Bearer " + atoken, "Content-Type": "application/json", "Prefer": "return=representation" },
+      body: JSON.stringify({ user_id: uid, key_hash: keyHash, key_prefix: keyPrefix, name: "HestiaFlow" })
+    });
+    if (ik.status !== 201) { console.log("[rooyai] key insert failed", ik.status); return null; }
+    // 6) Verify via /v1/models
+    let verified = false;
+    try {
+      const vr = await fetch(apiBase + "/models", { headers: { "Authorization": "Bearer " + newKey, "User-Agent": "HestiaFlow/1.0" } });
+      verified = vr.ok;
+    } catch {}
+    console.log(`[rooyai] auto-register ok, verified=${verified}`);
+    return { upstreamApiKey: newKey, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: verified };
+  } catch (e) { console.log("[rooyai] exception", e && e.message); return null; }
+}
+
 // Auto-register a real provider account (server-side, no admin config).
 // Tries generic signup/login/key endpoints against the provider's upstream_url
 // (operator-configured in DB). Returns { upstreamApiKey, upstreamBaseUrl } or null.
@@ -461,6 +524,12 @@ async function tryAutoRegister(provider, tempEmail, tempPassword) {
   if ((provider.brand_name || "").toLowerCase() === "nova") {
     const nova = await tryAutoRegisterNova(provider);
     if (nova) return nova;
+    return null;
+  }
+  // Aurora = RooyAI (2026-10-18, gantiin Tokit yang IP-nya diblokir). Auto-register via Supabase, no verifikasi.
+  if ((provider.brand_name || "").toLowerCase() === "aurora") {
+    const rooyai = await tryAutoRegisterRooyai(provider);
+    if (rooyai) return rooyai;
     return null;
   }
   const tryFetch = async (url, opts, ms) => {
