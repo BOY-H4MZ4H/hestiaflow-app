@@ -56,6 +56,11 @@ function seed() {
     const kcols = db.prepare("PRAGMA table_info(api_keys)").all().map((c) => c.name);
     if (!kcols.includes("expires_at")) db.prepare("ALTER TABLE api_keys ADD COLUMN expires_at TEXT").run();
   } catch {}
+  // Migrasi 2026-10-18: users.gratis_started_at — awal masa 2 hari Gratis (total, bukan per-key).
+  try {
+    const ucols2 = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+    if (!ucols2.includes("gratis_started_at")) db.prepare("ALTER TABLE users ADD COLUMN gratis_started_at TEXT").run();
+  } catch {}
   // Migrasi: tambah provider Nova (Tier Pro). Model + credit user-facing (bukan secret).
   // upstream_url Nova TIDAK ditulis di kode (anti-bocor) — di-set via env PROVIDER_NOVA_UPSTREAM_URL.
   // Hapus provider Nova dobel (kalau migrasi lama sempat jalan 2x) — sisakan 1 (id terkecil).
@@ -708,6 +713,20 @@ async function doHarvest({ userId, providerId, count }) {
     const existing = db.prepare("SELECT COUNT(*) AS c FROM api_keys WHERE user_id=? AND tier_id=?").get(userId, tier.id).c;
     if (existing + count > limit) throw new Error(`Limit Tier ${tier.name || tier.slug}: maks ${limit} akun. Kamu sudah punya ${existing} akun.`);
   }
+  // Gratis: 2 hari TOTAL (dari panen pertama). Abis 2 hari, GAK BISA panen lagi (harus upgrade).
+  if (userId != null && tier && tier.slug === "gratis") {
+    const u = db.prepare("SELECT gratis_started_at FROM users WHERE id=?").get(userId);
+    const now = new Date();
+    if (u && u.gratis_started_at) {
+      const started = new Date(u.gratis_started_at);
+      if (now - started > 2*24*60*60*1000) {
+        throw new Error("Masa gratis 2 hari habis! Upgrade paket untuk lanjut.");
+      }
+    } else {
+      // Panen pertama: catat waktu mulai.
+      db.prepare("UPDATE users SET gratis_started_at=? WHERE id=?").run(now.toISOString(), userId);
+    }
+  }
   // Resolve models: endpoint (if operator key) -> configured list -> honest empty.
   let models = null, source = "none";
   const fetched = await fetchProviderModels(provider);
@@ -1056,8 +1075,19 @@ function gatewayAuth(req) {
   const m = h.match(/^Bearer\s+(.+)$/i);
   if (!m) return null;
   const key = db.prepare("SELECT * FROM api_keys WHERE key_value=? AND status='active'").get(m[1].trim()) || null;
-  // Cek kadaluarsa (Gratis: 2 hari) — 2026-10-18.
-  if (key && key.expires_at && new Date(key.expires_at) < new Date()) key._expired = true;
+  if (!key) return null;
+  // Cek kadaluarsa per-key (Gratis: 2 hari dari panen).
+  if (key.expires_at && new Date(key.expires_at) < new Date()) key._expired = true;
+  // Cek masa Gratis TOTAL (2 hari dari panen pertama) — 2026-10-18. Abis 2 hari, key mati total.
+  if (!key._expired && key.user_id && key.tier_id) {
+    const tier = db.prepare("SELECT slug FROM tiers WHERE id=?").get(key.tier_id);
+    if (tier && tier.slug === "gratis") {
+      const u = db.prepare("SELECT gratis_started_at FROM users WHERE id=?").get(key.user_id);
+      if (u && u.gratis_started_at && Date.now() - new Date(u.gratis_started_at).getTime() > 2*24*60*60*1000) {
+        key._expired = true;
+      }
+    }
+  }
   return key;
 }
 function gatewayKeyModels(key) {
