@@ -45,20 +45,13 @@ function switchTab(t) { adminTab = t; if (t === "admin") loadAdmin(); render(); 
 function switchSection(s) { adminSection = s; renderAdminSections(); }
 
 const TIER_PRICE = { plus: { amount: "Rp 5.000", dur: "3 Hari" }, pro: { amount: "Rp 8.000", dur: "1 Minggu" }, premium: { amount: "Rp 15.000", dur: "2 Minggu" } };
-function brandLogo(brand) {
-  const b = String(brand || "").toLowerCase();
-  const map = { luna: "luna", aurora: "aurora", nova: "nova", stella: "stella" };
-  const f = map[b] || "luna";
-  return `<img src="/logos/${f}.png" alt="${esc(brand)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%" />`;
-}
 function tierShowcase() {
   return `<div class="section"><h2>Pilihan Paket Tier</h2>
   <div class="grid tiers">${TIERS.map((t) => `
     <div class="card tier ${t.slug === "premium" ? "premium" : ""}">
-      <div class="tier-ribbon" onclick="openOrderBot('${t.slug}')">Pesan</div>
       <div class="tier-head"><span class="badge ${t.slug === "gratis" ? "gratis" : t.slug === "plus" ? "plus" : t.slug === "pro" ? "pro" : "premium"}">${esc(t.badge)}</span>${TIER_PRICE[t.slug] ? `<div class="tier-price"><div class="price">${TIER_PRICE[t.slug].amount}</div><div class="price-dur">${TIER_PRICE[t.slug].dur}</div></div>` : ""}</div>
       ${(t.providers || []).map((p) => `
-        <div class="brand"><div class="medal ${t.slug === "premium" ? "gold" : ""}">${brandLogo(p.brand)}</div>
+        <div class="brand"><div class="medal ${t.slug === "premium" ? "gold" : ""}">${esc(p.brand.slice(0, 1))}</div>
         <div><h3>${esc(p.brand)}</h3><p>${esc(p.tagline || "")}</p></div></div>
         <div><span class="chip">${p.modelCount} model</span><span class="chip">${esc(p.creditNote || "")}</span></div>
       `).join("") || `<p class="muted">Belum ada provider di tier ini.</p>`}
@@ -88,7 +81,7 @@ function render() {
 }
 
 function voucherSection() {
-  return `<div class="section" id="voucherSection" style="text-align:center"><h2>Voucher</h2><p class="sub">Masukan Code Vocher Yang Di Beri Admin</p>
+  return `<div class="section" style="text-align:center"><h2>Voucher</h2><p class="sub">Masukan Code Vocher Yang Di Beri Admin</p>
   <div style="display:flex;flex-direction:column;align-items:center;gap:10px"><input id="voucherCode" placeholder="Kode Vocher" style="text-align:center;max-width:320px;width:100%" /><button class="btn btn-plum" onclick="redeemVoucher()">Tukar</button></div>
   <p id="voucherMsg" class="muted"></p></div>`;
 }
@@ -119,13 +112,8 @@ async function loadUser() {
     <div class="section"><h2>Model</h2>
       <div class="termbox" id="modelBox" style="max-height:160px;overflow-y:auto"><div class="term-line">Memuat model…</div></div>
     </div>
-    <div class="section"><h2>Curl Chat</h2><p class="sub">Pilih client untuk lihat & salin contoh API yang siap jalan.</p>
-      <div class="snippet-tabs">
-        <button class="snippet-tab active" data-tab="curl" onclick="switchSnippet('curl')">cURL</button>
-        <button class="snippet-tab" data-tab="python" onclick="switchSnippet('python')">Python</button>
-        <button class="snippet-tab" data-tab="node" onclick="switchSnippet('node')">Node.js</button>
-      </div>
-      <div class="termbox" style="overflow:auto"><div class="termbox-head"><span class="termbox-dots">● ● ●</span><span id="snippetLabel">CURL (TERMINAL / BASH)</span><button onclick="copySnippet(this)" class="copy-snippet-btn">Copy</button></div><pre id="snippetCode" style="margin:0;white-space:pre">curl https://hestiaflow-app-production.up.railway.app/v1/chat/completions \
+    <div class="section"><h2>Contoh Curl Chat</h2>
+      <div class="termbox" style="overflow:auto"><pre id="curlExample" style="margin:0;white-space:pre">curl https://hestiaflow-app-production.up.railway.app/v1/chat/completions \
   -H "Authorization: Bearer API_KEY_KAMU" \
   -H "Content-Type: application/json" \
   -d '{
@@ -133,11 +121,7 @@ async function loadUser() {
     "messages": [{"role": "user", "content": "Halo!"}],
     "stream": false
   }'</pre></div>
-      <h3 style="margin-top:16px">ENDPOINTS</h3>
-      <div class="endpoint-list">
-        <div class="endpoint-row"><div class="endpoint-row-top"><span class="endpoint-method post">POST</span><span class="endpoint-path">/v1/chat/completions</span></div><span class="endpoint-desc">Chat completions</span></div>
-        <div class="endpoint-row"><div class="endpoint-row-top"><span class="endpoint-method get">GET</span><span class="endpoint-path">/v1/models</span></div><span class="endpoint-desc">List models</span></div>
-      </div>
+      <div style="margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="copyCurlExample(this)">Salin</button></div>
     </div>`;
   renderHarvestSidebar();
   updateModelBox();
@@ -146,60 +130,9 @@ async function loadUser() {
 function keyBoxAll(keys) {
   return `<div class="keybox" style="margin-bottom:12px"><div class="lbl">API key HestiaFlow</div><div class="key-list-scroll">${keys.map((k) => `<div class="key-row"><span class="key-row-tag">${esc(k.tierSlug || "")} · ${esc(k.providerBrand || "")} · Credit: ${k.credit != null ? esc(k.credit) : "Tidak dinyatakan"}</span><span class="key-row-val">${esc(k.key)}</span><div style="display:flex;gap:6px;margin-top:4px"><button class="btn btn-ghost btn-sm" onclick="copyText('${esc(k.key)}',this)">Salin Key</button><button class="btn btn-ghost btn-sm" style="color:#b91c1c" onclick="deleteMyKey(${k.id},this)">Hapus</button></div></div>`).join("")}</div></div>`;
 }
-const SNIPPETS = {
-  curl: { label: "CURL (TERMINAL / BASH)", code: `curl https://hestiaflow-app-production.up.railway.app/v1/chat/completions \
-  -H "Authorization: Bearer API_KEY_KAMU" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "qwen3-coder:30b",
-    "messages": [{"role": "user", "content": "Halo!"}],
-    "stream": false
-  }'` },
-  python: { label: "PYTHON (OPENAI SDK)", code: `from openai import OpenAI
-
-client = OpenAI(
-    api_key="API_KEY_KAMU",
-    base_url="https://hestiaflow-app-production.up.railway.app/v1",
-)
-
-response = client.chat.completions.create(
-    model="qwen3-coder:30b",
-    messages=[
-        {"role": "user", "content": "Halo!"}
-    ],
-)
-
-print(response.choices[0].message.content)` },
-  node: { label: "JAVASCRIPT (NPM OPENAI)", code: `import OpenAI from "openai";
-
-const client = new OpenAI({
-  apiKey: "API_KEY_KAMU",
-  baseURL: "https://hestiaflow-app-production.up.railway.app/v1",
-});
-
-const response = await client.chat.completions.create({
-  model: "qwen3-coder:30b",
-  messages: [
-    { role: "user", content: "Halo!" }
-  ],
-});
-
-console.log(response.choices[0].message.content);` },
-};
-let activeSnippet = "curl";
-function switchSnippet(tab) {
-  activeSnippet = tab;
-  document.querySelectorAll(".snippet-tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
-  const s = SNIPPETS[tab]; if (!s) return;
-  const label = document.getElementById("snippetLabel"); if (label) label.textContent = s.label;
-  const code = document.getElementById("snippetCode"); if (code) code.textContent = s.code;
-}
-function openOrderBot(slug) {
-  window.open("https://t.me/hestiaflow_bot?start=hestiaflow_" + encodeURIComponent(slug || "gratis"), "_blank");
-}
-function copySnippet(btn) {
-  const code = document.getElementById("snippetCode");
-  if (code) navigator.clipboard.writeText(code.textContent).then(() => { if (btn) { const o = btn.textContent; btn.textContent = "Tersalin!"; setTimeout(() => btn.textContent = o, 1200); } });
+function copyCurlExample(btn) {
+  const el = document.getElementById("curlExample");
+  if (el) copyText(el.textContent, btn);
 }
 let lastHarvestKeys = [];
 function copyAllHarvestKeys(btn) {
@@ -386,6 +319,7 @@ function renderAdminSections() {
         <h4>Tier ${esc(t.name)}</h4>
         ${provs.map((p) => `<div style="border-top:1px solid var(--line);padding:10px 0">
           <b>${esc(p.brand)}</b> · ${p.modelCount} model · ${esc(p.creditNote || "")}
+          <button class="btn btn-ghost btn-sm" onclick="setProviderKey(${p.id})" style="margin-left:8px">Set API Key</button>
           <div>${(p.models || []).slice(0, 6).map((m) => `<span class="chip model">${esc(m)}</span>`).join("")}${(p.models || []).length > 6 ? `<span class="chip">+${p.models.length - 6} lagi</span>` : ""}</div>
           <div class="card" style="margin-top:10px"><b>PANEN AKUN — ${esc(p.brand)}</b>
           <p class="kv">Panen akun: tiap panen membuat 1 akun baru dengan email sementara yang berbeda-beda. Email & sandi tidak pernah ditampilkan.</p>
@@ -465,6 +399,14 @@ async function addWorker() {
   if (!name) return alert("Nama worker wajib diisi");
   await api("/api/admin/workers", { method: "POST", body: JSON.stringify({ providerId, name, credit }) });
   loadAdmin();
+}
+async function setProviderKey(providerId) {
+  const key = prompt("Masukkan upstream API key untuk provider ini (dapur, tidak ditampilkan ke pengguna):");
+  if (!key || !key.trim()) return;
+  try {
+    const out = await api(`/api/admin/providers/${providerId}`, { method: "PUT", body: JSON.stringify({ upstreamApiKey: key.trim() }) });
+    if (out && out.ok) { alert("API key tersimpan."); loadAdmin(); } else { alert("Gagal menyimpan."); }
+  } catch (e) { alert("Gagal menyimpan: " + e.message); }
 }
 async function saveSettings() {
   await api("/api/admin/settings", { method: "PUT", body: JSON.stringify({ gateway_name: $("#setName").value, base_url: $("#setBase").value }) });
