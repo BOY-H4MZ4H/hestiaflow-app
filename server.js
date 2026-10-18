@@ -62,17 +62,8 @@ function seed() {
   db.prepare("INSERT OR IGNORE INTO tiers (slug,name,audience_label,badge,max_models,sort_order) VALUES ('pro','Pro','UNTUK PENGGUNA PRO','TIER PRO',NULL,3)").run();
   // Migrasi (jalan tiap startup, walau DB sudah ada isi): badge + chip credit dipendekin.
   db.prepare("UPDATE providers SET credit_note=? WHERE brand_name=?").run("Always-free BETA", "Luna");
-  // Migrasi 2026-10-18: isi dalam Luna GANTI jadi Public AI (brand tetap "Luna", provider di baliknya Public AI).
-  // 5 model JALAN (terverifikasi chat): Gemma, Qwen, Bielik, Apertus-8b, Apertus-70b. v1.5 ter-list tapi Invalid model name saat chat → tidak dimasukkan.
-  const publicaiModels = ["aisingapore/Gemma-SEA-LION-v4-27B-IT","aisingapore/Qwen-SEA-LION-v4-32B-IT","speakleash/Bielik-11B-v3.0-Instruct","swiss-ai/apertus-8b-instruct","swiss-ai/apertus-70b-instruct"];
-  const publicaiNotes = {
-    "aisingapore/Gemma-SEA-LION-v4-27B-IT": "Context 128K. Harga $0.20/$0.40 per 1M token.",
-    "aisingapore/Qwen-SEA-LION-v4-32B-IT": "Context 128K (katalog gateway). Harga $0.25/$0.50 per 1M token.",
-    "speakleash/Bielik-11B-v3.0-Instruct": "Context 32K. Harga $0.40/$0.40 per 1M token.",
-    "swiss-ai/apertus-8b-instruct": "Context 65K. Harga $0.10/$0.20 per 1M token.",
-    "swiss-ai/apertus-70b-instruct": "Context 65K. Harga $0.82/$2.92 per 1M token."
-  };
-  db.prepare("UPDATE providers SET model_count=?, model_list_json=?, model_notes_json=?, credit_note=?, default_credit=? WHERE brand_name=?").run(5, JSON.stringify(publicaiModels), JSON.stringify(publicaiNotes), "$2.00 per akun", 2000000, "Luna");
+  // REVERT 2026-10-18: Luna balik ke AI4ALL (2 model, Always-free BETA). Public AI dibatalkan (operator takut komplain pembeli).
+  db.prepare("UPDATE providers SET model_count=?, model_list_json=?, model_notes_json=?, credit_note=?, default_credit=? WHERE brand_name=?").run(2, JSON.stringify(["qwen3-coder:30b","llama3.2:3b"]), JSON.stringify({"qwen3-coder:30b":"Muncul di website provider. Chat terverifikasi jalan.","llama3.2:3b":"Terdaftar di /v1/models. Tes chat gagal (service_unavailable)."}), "Always-free BETA", null, "Luna");
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("TIER GRATIS", "gratis");
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("TIER PLUS", "plus");
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("★ TIER PREMIUM", "premium");
@@ -83,10 +74,10 @@ function seed() {
   const p = insTier.run("plus", "Plus", "UNTUK PENGGUNA PLUS / BERBAYAR", "TIER PLUS", null, 2).lastInsertRowid;
   const pr = insTier.run("premium", "Premium", "PALING MAHAL", "★ TIER PREMIUM", null, 3).lastInsertRowid;
   const insProv = db.prepare("INSERT INTO providers (tier_id,brand_name,tagline,model_count,model_list_json,model_notes_json,credit_note,default_credit,sort_order) VALUES (?,?,?,?,?,?,?,?,?)");
-  insProv.run(g, "Luna", "Cahaya lembut untuk langkah pertama.", 5,
-    JSON.stringify(["aisingapore/Gemma-SEA-LION-v4-27B-IT","aisingapore/Qwen-SEA-LION-v4-32B-IT","speakleash/Bielik-11B-v3.0-Instruct","swiss-ai/apertus-8b-instruct","swiss-ai/apertus-70b-instruct"]),
-    JSON.stringify({ "aisingapore/Gemma-SEA-LION-v4-27B-IT": "Context 128K.", "aisingapore/Qwen-SEA-LION-v4-32B-IT": "Context 128K.", "speakleash/Bielik-11B-v3.0-Instruct": "Context 32K.", "swiss-ai/apertus-8b-instruct": "Context 65K.", "swiss-ai/apertus-70b-instruct": "Context 65K." }),
-    "$2.00 per akun", 2000000, 1);
+  insProv.run(g, "Luna", "Cahaya lembut untuk langkah pertama.", 2,
+    JSON.stringify(["qwen3-coder:30b", "llama3.2:3b"]),
+    JSON.stringify({ "qwen3-coder:30b": "Muncul di website provider. Chat terverifikasi jalan.", "llama3.2:3b": "Terdaftar di /v1/models. Tes chat gagal (service_unavailable)." }),
+    "Always-free BETA", null, 1);
   insProv.run(p, "Aurora", "Cahaya pertama di gerbang kecerdasan.", 30,
     JSON.stringify(AURORA_MODELS), JSON.stringify({}),
     "200.000 token per akun terverifikasi.", 200000, 1);
@@ -461,11 +452,10 @@ async function tryAutoRegisterNova(provider) {
 async function tryAutoRegister(provider, tempEmail, tempPassword) {
   const base = (provider.upstream_url || "").replace(/\/$/, "");
   if (!base) return null;
-  // Brand-specific flows (proven by operator's own scripts). Luna = Public AI (2026-10-18):
-  // auto-register butuh browser (Auth0 PKCE + verifikasi link) — tidak bisa via curl server.
-  // Operator tambah key Public AI manual via Panel Admin (worker key Luna). Harvest Luna tanpa upstream → Mati (jujur).
+  // Brand-specific flows (proven by operator's own scripts). Luna first (no verification).
   if ((provider.brand_name || "").toLowerCase() === "luna") {
-    console.log("[luna] Public AI auto-register: manual key via Panel Admin (Auth0 needs browser)");
+    const luna = await tryAutoRegisterLuna(provider);
+    if (luna) return luna;
     return null;
   }
   if ((provider.brand_name || "").toLowerCase() === "nova") {
