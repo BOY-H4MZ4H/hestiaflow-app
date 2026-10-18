@@ -62,6 +62,17 @@ function seed() {
   db.prepare("INSERT OR IGNORE INTO tiers (slug,name,audience_label,badge,max_models,sort_order) VALUES ('pro','Pro','UNTUK PENGGUNA PRO','TIER PRO',NULL,3)").run();
   // Migrasi (jalan tiap startup, walau DB sudah ada isi): badge + chip credit dipendekin.
   db.prepare("UPDATE providers SET credit_note=? WHERE brand_name=?").run("Always-free BETA", "Luna");
+  // Migrasi 2026-10-18: isi dalam Luna GANTI jadi Public AI (brand tetap "Luna", provider di baliknya Public AI).
+  // 5 model JALAN (terverifikasi chat): Gemma, Qwen, Bielik, Apertus-8b, Apertus-70b. v1.5 ter-list tapi Invalid model name saat chat → tidak dimasukkan.
+  const publicaiModels = ["aisingapore/Gemma-SEA-LION-v4-27B-IT","aisingapore/Qwen-SEA-LION-v4-32B-IT","speakleash/Bielik-11B-v3.0-Instruct","swiss-ai/apertus-8b-instruct","swiss-ai/apertus-70b-instruct"];
+  const publicaiNotes = {
+    "aisingapore/Gemma-SEA-LION-v4-27B-IT": "Context 128K. Harga $0.20/$0.40 per 1M token.",
+    "aisingapore/Qwen-SEA-LION-v4-32B-IT": "Context 128K (katalog gateway). Harga $0.25/$0.50 per 1M token.",
+    "speakleash/Bielik-11B-v3.0-Instruct": "Context 32K. Harga $0.40/$0.40 per 1M token.",
+    "swiss-ai/apertus-8b-instruct": "Context 65K. Harga $0.10/$0.20 per 1M token.",
+    "swiss-ai/apertus-70b-instruct": "Context 65K. Harga $0.82/$2.92 per 1M token."
+  };
+  db.prepare("UPDATE providers SET model_count=?, model_list_json=?, model_notes_json=?, credit_note=?, default_credit=? WHERE brand_name=?").run(5, JSON.stringify(publicaiModels), JSON.stringify(publicaiNotes), "$2.00 per akun", 2000000, "Luna");
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("TIER GRATIS", "gratis");
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("TIER PLUS", "plus");
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("★ TIER PREMIUM", "premium");
@@ -72,10 +83,10 @@ function seed() {
   const p = insTier.run("plus", "Plus", "UNTUK PENGGUNA PLUS / BERBAYAR", "TIER PLUS", null, 2).lastInsertRowid;
   const pr = insTier.run("premium", "Premium", "PALING MAHAL", "★ TIER PREMIUM", null, 3).lastInsertRowid;
   const insProv = db.prepare("INSERT INTO providers (tier_id,brand_name,tagline,model_count,model_list_json,model_notes_json,credit_note,default_credit,sort_order) VALUES (?,?,?,?,?,?,?,?,?)");
-  insProv.run(g, "Luna", "Cahaya lembut untuk langkah pertama.", 2,
-    JSON.stringify(["qwen3-coder:30b", "llama3.2:3b"]),
-    JSON.stringify({ "qwen3-coder:30b": "Muncul di website provider. Chat terverifikasi jalan.", "llama3.2:3b": "Terdaftar di /v1/models. Tes chat gagal (service_unavailable)." }),
-    "Always-free BETA", null, 1);
+  insProv.run(g, "Luna", "Cahaya lembut untuk langkah pertama.", 5,
+    JSON.stringify(["aisingapore/Gemma-SEA-LION-v4-27B-IT","aisingapore/Qwen-SEA-LION-v4-32B-IT","speakleash/Bielik-11B-v3.0-Instruct","swiss-ai/apertus-8b-instruct","swiss-ai/apertus-70b-instruct"]),
+    JSON.stringify({ "aisingapore/Gemma-SEA-LION-v4-27B-IT": "Context 128K.", "aisingapore/Qwen-SEA-LION-v4-32B-IT": "Context 128K.", "speakleash/Bielik-11B-v3.0-Instruct": "Context 32K.", "swiss-ai/apertus-8b-instruct": "Context 65K.", "swiss-ai/apertus-70b-instruct": "Context 65K." }),
+    "$2.00 per akun", 2000000, 1);
   insProv.run(p, "Aurora", "Cahaya pertama di gerbang kecerdasan.", 30,
     JSON.stringify(AURORA_MODELS), JSON.stringify({}),
     "200.000 token per akun terverifikasi.", 200000, 1);
@@ -86,7 +97,6 @@ function seed() {
   db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('base_url',?)").run(GATEWAY_BASE_URL);
 }
 seed();
-try { require("./bot.js").startBot(db); } catch (e) { console.error("[bot] start err", e.message); }
 // Sync provider upstream URLs from env vars (PROVIDER_<BRAND>_UPSTREAM_URL).
 // Operator config only — values live in Railway env, never in public code.
 for (const [k, v] of Object.entries(process.env)) {
@@ -179,7 +189,7 @@ async function fetchProviderModels(p) {
     const url = stripV1(p.upstream_url) + "/v1/models";
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 6000);
-    const r = await fetch(url, { headers: { Authorization: `Bearer ${p.upstream_api_key}` }, signal: ctl.signal });
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${p.upstream_api_key}`, "User-Agent": "HestiaFlow/1.0" }, signal: ctl.signal });
     clearTimeout(t);
     if (!r.ok) return null;
     const d = await r.json();
@@ -207,31 +217,21 @@ const randUA = () => UA_POOL[Math.floor(Math.random() * UA_POOL.length)];
 
 let _proxyCache = { list: [], at: 0 };
 async function fetchProxyList() {
-  // Prioritas: PROXY_LIST env (proxy hidup yang sudah dites user).
-  const envList = (process.env.PROXY_LIST || "").split(",").map((x) => x.trim()).filter(Boolean);
-  if (envList.length) return envList;
-  // Fallback: Proxyscrape free proxy list (operator's own source). Cache 5 min.
+  // Proxyscrape free proxy list (operator's own source). Cache 5 min.
   if (_proxyCache.list.length && Date.now() - _proxyCache.at < 300000) return _proxyCache.list;
   const urls = [
     "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=6000&country=all&ssl=all&anonymity=all",
-    "https://api.proxyscrape.com/v3/free-proxy-list/get?request=displayproxies&proxy_format=protocolipport&format=text&protocol=http&timeout=15000",
-    "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+    "https://api.proxyscrape.com/v3/free-proxy-list/get?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all",
   ];
-  const out = [];
   for (const u of urls) {
     try {
       const r = await fetch(u, { signal: AbortSignal.timeout(15000) });
-      const t = await r.text().catch(() => "");
-      for (const line of t.split("\n")) {
-        const p = line.trim();
-        if (p && /^\d+\.\d+\.\d+\.\d+:\d+$/.test(p)) out.push("http://" + p);
-        else if (p && /^https?:\/\//.test(p)) out.push(p);
-      }
+      const txt = await r.text();
+      const list = txt.split(/\r?\n/).map((s) => s.trim()).filter((s) => /^\d+\.\d+\.\d+\.\d+:\d+$/.test(s));
+      if (list.length) { _proxyCache = { list, at: Date.now() }; return list; }
     } catch {}
   }
-  const uniq = [...new Set(out)];
-  _proxyCache = { list: uniq, at: Date.now() };
-  return uniq;
+  return _proxyCache.list;
 }
 function proxyDispatcher(proxyHostPort) {
   try {
@@ -409,8 +409,8 @@ async function tryAutoRegisterNova(provider) {
   if (!tempEmail) tempEmail = `hf_${randStr(10)}@1secmail.com`;
   const name = NAMES[Math.floor(Math.random() * NAMES.length)].replace(/^./, (c) => c.toUpperCase()) + String(10 + Math.floor(Math.random() * 90));
   const tempPassword = name + "12345"; // min 8 char, matches operator script format
-  const workingProxies = await checkProxies(webBase, 3);
-  const proxy = workingProxies.length ? workingProxies[0] : null;
+  const proxies = await fetchProxyList();
+  const proxy = proxies.length ? proxies[Math.floor(Math.random() * proxies.length)] : null;
   const doFetch = async (url, opts, useProxy) => {
     const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 30000);
     try {
@@ -437,7 +437,7 @@ async function tryAutoRegisterNova(provider) {
   } catch {}
   // 3) Create API key.
   let kr = await doFetch(apiBase + "/v1/keys", { method: "POST", headers: { ...H, Authorization: `Bearer ${token}` }, body: JSON.stringify({ name: "key-1" }) }, true);
-  if (!kr || !kr.ok) kr = await doFetch(apiBase + "/v1/keys", { method: "POST", headers: { ...H, Authorization: `Bearer ${token}` }, body: JSON.stringify({ name: "key-1" }) }, true);
+  if (!kr || !kr.ok) kr = await doFetch(apiBase + "/v1/keys", { method: "POST", headers: { ...H, Authorization: `Bearer ${token}` }, body: JSON.stringify({ name: "key-1" }) }, false);
   const key = kr && kr.ok && kr.json ? kr.json.key : null;
   console.log(`[nova] key status=${kr ? kr.status : "null"} ok=${!!(kr && kr.ok)} hasKey=${!!key}`);
   if (!key) return null;
@@ -458,370 +458,19 @@ async function tryAutoRegisterNova(provider) {
 // (operator-configured in DB). Returns { upstreamApiKey, upstreamBaseUrl } or null.
 // NEVER logs or returns upstream credentials. Falls back to null on any failure
 // (CAPTCHA, email verification, unknown flow) — caller keeps NULL upstream key.
-async function checkProxies(baseUrl, want) {
-  // Tes proxy ke API provider (kayak tokit.py check_pool): hanya pakai yang hidup.
-  const candidates = await fetchProxyList();
-  const working = [];
-  const BATCH = 20;
-  for (let i = 0; i < candidates.length && working.length < want; i += BATCH) {
-    const batch = candidates.slice(i, i + BATCH);
-    const results = await Promise.allSettled(batch.map(async (proxy) => {
-      try {
-        const d = proxyDispatcher(proxy);
-        if (!d) return null;
-        const r = await fetch(baseUrl + "/v1/models", { dispatcher: d, signal: AbortSignal.timeout(8000) });
-        if ([200, 401, 403, 429].includes(r.status)) return proxy;
-      } catch {}
-      return null;
-    }));
-    for (const res of results) {
-      if (res.status === "fulfilled" && res.value) working.push(res.value);
-      if (working.length >= want) break;
-    }
-  }
-  return working;
-}
-async function tryAutoRegisterAurora(provider) {
-  const apiBase = (provider.upstream_url || "").replace(/\/$/, "");
-  if (!apiBase) return null;
-  const webBase = apiBase.replace(/\/v1$/, "");
-  const randIp = () => Array.from({ length: 4 }, () => 1 + Math.floor(Math.random() * 254)).join(".");
-  const mailtm = async () => {
-    try {
-      const dom = await (await fetch("https://api.mail.tm/domains", { signal: AbortSignal.timeout(15000) })).json().catch(() => null);
-      const domain = dom && dom["hydra:member"] && dom["hydra:member"][0] ? dom["hydra:member"][0].domain : "mail.tm";
-      const local = "hf" + randStr(10).toLowerCase();
-      const email = local + "@" + domain;
-      const pwd = randStr(12);
-      const ac = await fetch("https://api.mail.tm/accounts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address: email, password: pwd }), signal: AbortSignal.timeout(15000) });
-      if (!ac.ok) return null;
-      const tk = await fetch("https://api.mail.tm/token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address: email, password: pwd }), signal: AbortSignal.timeout(15000) });
-      const tj = await tk.json().catch(() => null);
-      if (!tj || !tj.token) return null;
-      return { email, password: pwd, token: tj.token, kind: "mailtm" };
-    } catch { return null; }
-  };
-  const mailtmCode = async (inbox) => {
-    for (let i = 0; i < 12; i++) {
-      try {
-        const r = await fetch("https://api.mail.tm/messages?page=1", { headers: { Authorization: "Bearer " + inbox.token }, signal: AbortSignal.timeout(15000) });
-        const j = await r.json().catch(() => null);
-        const msgs = j && j["hydra:member"] ? j["hydra:member"] : [];
-        if (i === 0) console.log(`[aurora] mailtm inbox msgs=${msgs.length} subjects=${msgs.map((m) => m.subject || "").slice(0, 3).join(" | ")}`);
-        for (const m of msgs) {
-          const mr = await fetch("https://api.mail.tm/messages/" + m.id, { headers: { Authorization: "Bearer " + inbox.token }, signal: AbortSignal.timeout(15000) });
-          const mj = await mr.json().catch(() => null);
-          const body = (mj && (mj.text || mj.html || "")) + " " + (mj && mj.subject || "");
-          const code = (String(body).match(/\b(\d{4,6})\b/) || [])[1];
-          if (code) return code;
-        }
-      } catch {}
-      await new Promise((res) => setTimeout(res, 10000));
-    }
-    return null;
-  };
-  const minuteInbox = async () => {
-    try {
-      const h0 = { "User-Agent": randUA() };
-      const r0 = await fetch("https://www.minuteinbox.com/", { headers: h0, signal: AbortSignal.timeout(30000) });
-      const t0 = await r0.text().catch(() => "");
-      const m = t0.match(/(?:CSRF|csrf_token|csrf)\s*[:=]\s*["']([^"']+)["']/);
-      const csrf = m ? m[1] : "";
-      const cookies = (r0.headers.getSetCookie ? r0.headers.getSetCookie() : []).map((c) => c.split(";")[0]).join("; ");
-      const NAMES = ["hestia", "ayang", "sayang", "cinta", "rindu", "kasih", "manja", "bunga"];
-      const local = NAMES[Math.floor(Math.random() * NAMES.length)] + String(Date.now()).slice(-6);
-      const ajaxH = { ...h0, Referer: "https://www.minuteinbox.com/", Origin: "https://www.minuteinbox.com", "X-Requested-With": "XMLHttpRequest", Cookie: cookies, "Content-Type": "application/x-www-form-urlencoded" };
-      await new Promise((res) => setTimeout(res, 1000));
-      await fetch("https://www.minuteinbox.com/index/new-email/", { method: "POST", headers: ajaxH, body: "emailInput=" + encodeURIComponent(local) + "&format=json", signal: AbortSignal.timeout(30000) });
-      await new Promise((res) => setTimeout(res, 2000));
-      const r1 = await fetch("https://www.minuteinbox.com/index/index?csrf_token=" + encodeURIComponent(csrf), { headers: ajaxH, signal: AbortSignal.timeout(30000) });
-      const j1 = await r1.json().catch(() => null);
-      if (j1 && j1.email) return { email: j1.email, cookies, csrf, ajaxH, kind: "minuteinbox" };
-    } catch {}
-    return null;
-  };
-  const minuteInboxCode = async (inbox) => {
-    for (let i = 0; i < 12; i++) {
-      try {
-        const r = await fetch("https://www.minuteinbox.com/index/refresh", { headers: inbox.ajaxH, signal: AbortSignal.timeout(30000) });
-        const j = await r.json().catch(() => null);
-        const msgs = j && j.messages ? j.messages : (Array.isArray(j) ? j : []);
-        for (const m of msgs) {
-          const subj = String(m.subject || m.from || "");
-          if (!/(tokit|verif|code)/i.test(subj)) continue;
-          const er = await fetch("https://www.minuteinbox.com/index/email?id=" + m.id, { headers: inbox.ajaxH, signal: AbortSignal.timeout(30000) });
-          const ej = await er.json().catch(() => null);
-          const body = (ej && (ej.body || ej.text || ej.html || "")) + " " + (ej && ej.subject || "");
-          const code = (String(body).match(/\b(\d{4,6})\b/) || [])[1];
-          if (code) return code;
-        }
-      } catch {}
-      await new Promise((res) => setTimeout(res, 15000));
-    }
-    return null;
-  };
-  const secmail = () => {
-    const login = "hf" + randStr(10).toLowerCase();
-    const domains = ["1secmail.com", "1secmail.net", "1secmail.org", "wwjmp.com", "esiix.com"];
-    const domain = domains[Math.floor(Math.random() * domains.length)];
-    return { email: login + "@" + domain, login, domain, kind: "secmail" };
-  };
-  const secmailCode = async (inbox) => {
-    for (let i = 0; i < 12; i++) {
-      try {
-        const r = await fetch(`https://www.1secmail.com/api/v1/?action=getMessages&login=${encodeURIComponent(inbox.login)}&domain=${encodeURIComponent(inbox.domain)}`, { signal: AbortSignal.timeout(15000) });
-        const list = await r.json().catch(() => []);
-        for (const m of Array.isArray(list) ? list : []) {
-          const subj = String(m.subject || "") + " " + String(m.from || "");
-          if (!/(tokit|verif|code)/i.test(subj)) continue;
-          const fr = await fetch(`https://www.1secmail.com/api/v1/?action=readMessage&login=${encodeURIComponent(inbox.login)}&domain=${encodeURIComponent(inbox.domain)}&id=${m.id}`, { signal: AbortSignal.timeout(15000) });
-          const fj = await fr.json().catch(() => null);
-          const body = (fj && (fj.textBody || fj.htmlBody || "")) + " " + (fj && fj.subject || "");
-          const code = (String(body).match(/\b(\d{4,6})\b/) || [])[1];
-          if (code) return code;
-        }
-      } catch {}
-      await new Promise((res) => setTimeout(res, 15000));
-    }
-    return null;
-  };
-  const guerrilla = async () => {
-    // Pakai alamat ASLI dari API (jangan rewrite domain — email ke domain lain
-    // tidak sampai ke inbox ini). Proxy hidup yang bikin Tokit kirim kode-nya.
-    try {
-      const r = await fetch("https://api.guerrillamail.com/ajax.php?f=get_email_address&lang=en", { signal: AbortSignal.timeout(15000) });
-      const j = await r.json().catch(() => null);
-      if (j && j.email_addr) return { email: j.email_addr, sid: j.sid_token, kind: "guerrilla" };
-    } catch {}
-    return null;
-  };
-  const guerrillaCode = async (inbox) => {
-    const seen = new Set();
-    for (let i = 0; i < 12; i++) {
-      try {
-        const r = await fetch(`https://api.guerrillamail.com/ajax.php?f=check_email&seq=0&sid_token=${encodeURIComponent(inbox.sid)}`, { signal: AbortSignal.timeout(15000) });
-        const j = await r.json().catch(() => null);
-        const list = j && j.list ? j.list : [];
-        for (const m of list) {
-          if (seen.has(m.mail_id)) continue;
-          seen.add(m.mail_id);
-          const subj = String(m.mail_subject || "") + " " + String(m.mail_from || "");
-          if (!/(tokit|verif|code)/i.test(subj)) continue;
-          const fr = await fetch(`https://api.guerrillamail.com/ajax.php?f=fetch_email&email_id=${m.mail_id}&sid_token=${encodeURIComponent(inbox.sid)}`, { signal: AbortSignal.timeout(15000) });
-          const fj = await fr.json().catch(() => null);
-          const body = (fj && (fj.mail_body || "")) + " " + (fj && fj.mail_subject || "");
-          const code = (String(body).match(/\b(\d{4,6})\b/) || [])[1];
-          if (code) return code;
-        }
-      } catch {}
-      await new Promise((res) => setTimeout(res, 15000));
-    }
-    return null;
-  };
-  let inbox = await guerrilla();
-  if (!inbox) inbox = await minuteInbox();
-  if (!inbox) inbox = secmail();
-  if (!inbox) inbox = await mailtm();
-  if (!inbox) return null;
-  const tempEmail = inbox.email;
-  const tempPassword = inbox.password || (randStr(10) + "12345");
-  const proxies = await fetchProxyList();
-  const proxy = proxies.length ? proxies[Math.floor(Math.random() * proxies.length)] : null;
-  const doFetch = async (url, opts, useProxy) => {
-    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 30000);
-    try {
-      const o = { ...opts, signal: ctl.signal };
-      if (useProxy && proxy) { const d = proxyDispatcher(proxy); if (d) o.dispatcher = d; }
-      const r = await fetch(url, o);
-      const txt = await r.text().catch(() => "");
-      let j = null; try { j = JSON.parse(txt); } catch {}
-      return { ok: r.ok, status: r.status, json: j, text: txt };
-    } catch { return null; } finally { clearTimeout(t); }
-  };
-  const H = { "User-Agent": randUA(), "Content-Type": "application/json", "X-Forwarded-For": randIp() };
-  let vr = await doFetch(webBase + "/api/verification?email=" + encodeURIComponent(tempEmail), { method: "GET", headers: H }, true);
-  // (verification HARUS lewat proxy hidup; fallback direct = IP datacenter, Tokit blok)
-  console.log(`[aurora] verification status=${vr ? vr.status : "null"} ok=${!!(vr && vr.ok)}`);
-  console.log(`[aurora] verification resp=${vr ? String(vr.text || "").slice(0, 200) : "null"}`);
-  console.log(`[aurora] inbox=${inbox.email} kind=${inbox.kind}`);
-  const code = inbox.kind === "minuteinbox" ? await minuteInboxCode(inbox) : inbox.kind === "mailtm" ? await mailtmCode(inbox) : inbox.kind === "secmail" ? await secmailCode(inbox) : await guerrillaCode(inbox);
-  console.log(`[aurora] code found=${!!code}`);
-  if (!code) return null;
-  const regBodies = [
-    { email: tempEmail, password: tempPassword, code, aff: "jvTs" },
-    { email: tempEmail, password: tempPassword, verification_code: code, aff: "jvTs" },
-    { email: tempEmail, password: tempPassword, code },
-  ];
-  let reg = null;
-  for (const b of regBodies) {
-    reg = await doFetch(webBase + "/api/user/register", { method: "POST", headers: H, body: JSON.stringify(b) }, true);
-    if (reg && reg.ok) break;
-  }
-  console.log(`[aurora] register status=${reg ? reg.status : "null"} ok=${!!(reg && reg.ok)}`);
-  if (!reg || !reg.ok) return null;
-  const lg = await doFetch(webBase + "/api/user/login", { method: "POST", headers: H, body: JSON.stringify({ email: tempEmail, password: tempPassword }) }, true);
-  const token = lg && lg.ok && lg.json ? (lg.json.token || lg.json.access_token || lg.json.accessToken || null) : null;
-  console.log(`[aurora] login status=${lg ? lg.status : "null"} hasToken=${!!token}`);
-  if (!token) return null;
-  const AH = { ...H, Authorization: `Bearer ${token}` };
-  let tid = null;
-  const tk = await doFetch(webBase + "/api/token/", { method: "POST", headers: AH, body: JSON.stringify({ name: "key-1" }) }, false);
-  if (tk && tk.ok && tk.json) tid = tk.json.id || tk.json.tid || tk.json.token_id || null;
-  if (!tid) {
-    const lt = await doFetch(webBase + "/api/token/", { method: "GET", headers: AH }, true);
-    const arr = lt && lt.ok && lt.json ? (Array.isArray(lt.json) ? lt.json : (lt.json.tokens || lt.json.data || [])) : [];
-    if (arr.length) tid = arr[0].id || arr[0].tid || arr[0].token_id || null;
-  }
-  console.log(`[aurora] token id=${tid}`);
-  if (!tid) return null;
-  const kr = await doFetch(webBase + `/api/token/${tid}/key`, { method: "POST", headers: AH, body: JSON.stringify({}) }, true);
-  const key = kr && kr.ok && kr.json ? (kr.json.key || kr.json.api_key || kr.json.apiKey || null) : null;
-  console.log(`[aurora] key status=${kr ? kr.status : "null"} hasKey=${!!key}`);
-  if (!key) return null;
-  let verified = false;
-  try {
-    const v = await fetch(apiBase + "/v1/models", { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(20000) });
-    verified = !!v.ok;
-    console.log(`[aurora] verify models status=${v.status} ok=${v.ok}`);
-  } catch (e) { console.log(`[aurora] verify exception ${e.message}`); }
-  return { upstreamApiKey: key, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: verified };
-}
-
-function mergeCookies(oldC, newC) {
-  const map = {};
-  for (const part of String(oldC || "").split(";")) { const [k, ...v] = part.trim().split("="); if (k) map[k] = v.join("="); }
-  for (const part of String(newC || "").split(";")) { const [k, ...v] = part.trim().split("="); if (k) map[k] = v.join("="); }
-  return Object.entries(map).map(([k, v]) => k + "=" + v).join("; ");
-}
-async function tryAutoRegisterStella(provider) {
-  const apiBase = (provider.upstream_url || "").replace(/\/$/, "");
-  if (!apiBase) return null;
-  const webBase = apiBase.replace(/\/v1$/, "");
-  const miInbox = async () => {
-    try {
-      const h0 = { "User-Agent": randUA() };
-      const r0 = await fetch("https://www.minuteinbox.com/", { headers: h0, signal: AbortSignal.timeout(30000) });
-      const t0 = await r0.text().catch(() => "");
-      const m = t0.match(/(?:CSRF|csrf_token|csrf)\s*[:=]\s*["']([^"']+)["']/);
-      const csrf = m ? m[1] : "";
-      const cookies = (r0.headers.getSetCookie ? r0.headers.getSetCookie() : []).map((c) => c.split(";")[0]).join("; ");
-      const NAMES = ["hestia", "ayang", "sayang", "cinta", "rindu", "kasih", "manja", "bunga"];
-      const local = NAMES[Math.floor(Math.random() * NAMES.length)] + String(Date.now()).slice(-6);
-      const ajaxH = { ...h0, Referer: "https://www.minuteinbox.com/", Origin: "https://www.minuteinbox.com", "X-Requested-With": "XMLHttpRequest", Cookie: cookies, "Content-Type": "application/x-www-form-urlencoded" };
-      await new Promise((res) => setTimeout(res, 1000));
-      await fetch("https://www.minuteinbox.com/index/new-email/", { method: "POST", headers: ajaxH, body: "emailInput=" + encodeURIComponent(local) + "&format=json", signal: AbortSignal.timeout(30000) });
-      await new Promise((res) => setTimeout(res, 2000));
-      const r1 = await fetch("https://www.minuteinbox.com/index/index?csrf_token=" + encodeURIComponent(csrf), { headers: ajaxH, signal: AbortSignal.timeout(30000) });
-      const j1 = await r1.json().catch(() => null);
-      if (j1 && j1.email) return { email: j1.email, cookies, csrf, ajaxH };
-    } catch {}
-    return null;
-  };
-  const miCode = async (inbox) => {
-    for (let i = 0; i < 20; i++) {
-      try {
-        const r = await fetch("https://www.minuteinbox.com/index/refresh", { headers: inbox.ajaxH, signal: AbortSignal.timeout(30000) });
-        const j = await r.json().catch(() => null);
-        const list = Array.isArray(j) ? j : [];
-        for (const m of list) {
-          const frm = String(m.od || "").toLowerCase();
-          const subj = String(m.predmet || "").toLowerCase();
-          if (frm.includes("free") || subj.includes("free") || subj.includes("verif") || subj.includes("code")) {
-            const er = await fetch("https://www.minuteinbox.com/index/email?id=" + m.id, { headers: inbox.ajaxH, signal: AbortSignal.timeout(30000) });
-            const body = await er.text().catch(() => "");
-            const clean = body.replace(/<[^>]+>/g, " ");
-            const codes = (clean.match(/\b(\d{6})\b/g) || []).filter((c) => !["374151", "000000", "ffffff"].includes(c));
-            if (codes.length) return codes[0];
-          }
-        }
-      } catch {}
-      await new Promise((res) => setTimeout(res, 15000));
-    }
-    return null;
-  };
-  const inbox = await miInbox();
-  if (!inbox) return null;
-  const tempEmail = inbox.email;
-  const tempPassword = "Hestia" + String(10 + Math.floor(Math.random() * 90)) + "12345";
-  const proxies = await fetchProxyList();
-  const proxy = proxies.length ? proxies[Math.floor(Math.random() * proxies.length)] : null;
-  const doFetch = async (url, opts, useProxy) => {
-    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 30000);
-    try {
-      const o = { ...opts, signal: ctl.signal };
-      if (useProxy && proxy) { const d = proxyDispatcher(proxy); if (d) o.dispatcher = d; }
-      const r = await fetch(url, o);
-      const txt = await r.text().catch(() => "");
-      let j = null; try { j = JSON.parse(txt); } catch {}
-      const ck = (r.headers.getSetCookie ? r.headers.getSetCookie() : []).map((c) => c.split(";")[0]).join("; ");
-      return { ok: r.ok, status: r.status, json: j, text: txt, url: r.url, cookies: ck, location: r.headers.get("location") || "" };
-    } catch { return null; } finally { clearTimeout(t); }
-  };
-  const UA = randUA();
-  await doFetch(webBase + "/", { method: "GET", headers: { "User-Agent": UA } }, false);
-  const sg = await doFetch(webBase + "/signup/", { method: "GET", headers: { "User-Agent": UA } }, false);
-  const csrf = sg && sg.text ? ((sg.text.match(/name="csrfmiddlewaretoken" value="([^"]+)"/) || [])[1]) : null;
-  const stok = sg && sg.text ? ((sg.text.match(/name="signup_token" value="([^"]+)"/) || [])[1]) : null;
-  console.log(`[stella] signup form csrf=${!!csrf} stok=${!!stok} cookies=${!!(sg && sg.cookies)}`);
-  if (!csrf || !stok) return null;
-  const cookieHdr = sg.cookies || "";
-  const form = new URLSearchParams({ csrfmiddlewaretoken: csrf, lang: "en", signup_token: stok, email: tempEmail, password: tempPassword }).toString();
-  const rp = await doFetch(webBase + "/signup/", { method: "POST", headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded", Referer: webBase + "/signup/", Cookie: cookieHdr }, body: form, redirect: "manual" }, false);
-  const signupOk = rp && rp.status === 302 && String(rp.location || "").includes("/verify/");
-  console.log(`[stella] signup status=${rp ? rp.status : "null"} ok=${!!signupOk} disposable=${!!(rp && rp.text.includes("Disposable"))}`);
-  console.log(`[stella] signup resp=${rp ? String(rp.text || "").replace(/\s+/g, " ").slice(0, 400) : "null"}`);
-  if (!signupOk) return null;
-  const cookieHdr2 = mergeCookies(cookieHdr, rp.cookies);
-  const code = await miCode(inbox);
-  console.log(`[stella] code found=${!!code}`);
-  if (!code) return null;
-  const vf = await doFetch(webBase + "/verify/", { method: "GET", headers: { "User-Agent": UA, Cookie: cookieHdr2 } }, false);
-  const cookieHdr2b = mergeCookies(cookieHdr2, vf.cookies);
-  const vcsrf = vf && vf.text ? ((vf.text.match(/name="csrfmiddlewaretoken" value="([^"]+)"/) || [])[1]) : csrf;
-  const vform = new URLSearchParams({ csrfmiddlewaretoken: vcsrf || csrf, code }).toString();
-  const vr = await doFetch(webBase + "/verify/", { method: "POST", headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded", Referer: webBase + "/verify/", Cookie: cookieHdr2b }, body: vform, redirect: "manual" }, false);
-  const verifyOk = vr && vr.status === 302 && !String(vr.location || "").includes("/verify/");
-  console.log(`[stella] verify status=${vr ? vr.status : "null"} ok=${!!verifyOk}`);
-  if (!verifyOk) return null;
-  const cookieHdr3 = mergeCookies(cookieHdr2b, vr.cookies);
-  const csrftoken = (cookieHdr3.match(/csrftoken=([^;]+)/) || [])[1] || "";
-  const kr = await doFetch(webBase + "/api/v1/api-keys/", { method: "POST", headers: { "User-Agent": UA, "Content-Type": "application/json", "X-CSRFToken": csrftoken, Referer: webBase + "/account/", Cookie: cookieHdr3 }, body: JSON.stringify({ name: "script key" }) }, false);
-  const key = kr && kr.ok && kr.json ? (kr.json.key || null) : null;
-  console.log(`[stella] key status=${kr ? kr.status : "null"} hasKey=${!!key}`);
-  console.log(`[stella] key resp=${kr ? String(kr.text || "").replace(/\s+/g, " ").slice(0, 300) : "null"} csrftoken_len=${csrftoken.length}`);
-  if (!key) return null;
-  let verified = false;
-  try {
-    const v = await fetch(apiBase + "/v1/models", { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(20000) });
-    verified = !!v.ok;
-    console.log(`[stella] verify models status=${v.status} ok=${v.ok}`);
-  } catch (e) { console.log(`[stella] verify exception ${e.message}`); }
-  return { upstreamApiKey: key, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: verified };
-}
-
-
 async function tryAutoRegister(provider, tempEmail, tempPassword) {
   const base = (provider.upstream_url || "").replace(/\/$/, "");
   if (!base) return null;
-  // Brand-specific flows (proven by operator's own scripts). Luna first (no verification).
+  // Brand-specific flows (proven by operator's own scripts). Luna = Public AI (2026-10-18):
+  // auto-register butuh browser (Auth0 PKCE + verifikasi link) — tidak bisa via curl server.
+  // Operator tambah key Public AI manual via Panel Admin (worker key Luna). Harvest Luna tanpa upstream → Mati (jujur).
   if ((provider.brand_name || "").toLowerCase() === "luna") {
-    const luna = await tryAutoRegisterLuna(provider);
-    if (luna) return luna;
+    console.log("[luna] Public AI auto-register: manual key via Panel Admin (Auth0 needs browser)");
     return null;
   }
   if ((provider.brand_name || "").toLowerCase() === "nova") {
     const nova = await tryAutoRegisterNova(provider);
     if (nova) return nova;
-    return null;
-  }
-  if ((provider.brand_name || "").toLowerCase() === "aurora") {
-    const aurora = await tryAutoRegisterAurora(provider);
-    if (aurora) return aurora;
-    return null;
-  }
-  if ((provider.brand_name || "").toLowerCase() === "stella") {
-    const stella = await tryAutoRegisterStella(provider);
-    if (stella) return stella;
     return null;
   }
   const tryFetch = async (url, opts, ms) => {
@@ -1302,7 +951,7 @@ app.post("/v1/chat/completions", async (req, res) => {
     const t = setTimeout(() => ctl.abort(), 120000);
     const r = await fetch(stripV1(upstreamUrl) + "/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${upstreamKey}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${upstreamKey}`, "User-Agent": "HestiaFlow/1.0" },
       body: JSON.stringify(req.body),
       signal: ctl.signal,
     });
