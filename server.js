@@ -789,6 +789,35 @@ async function doHarvest({ userId, providerId, count }) {
     models = [...models, "uncensored"];
   }
   const logs = []; const keys = [];
+  // Gratis: gabung N akun jadi 1 key (2026-10-18, perintah Hestia "Tier Gratis Aja Dulu").
+  // 1 api_keys row, N harvested_accounts rows. Gateway failover otomatis.
+  const isGratisCombine = (tier && tier.slug === "gratis");
+  if (isGratisCombine) {
+    const keyValue = `hgw-${randHex(16)}`;
+    const keyPrefix = keyValue.slice(0, 12);
+    const credit = provider.default_credit != null ? provider.default_credit : null;
+    const expiresAt = new Date(Date.now() + 2*24*60*60*1000).toISOString();
+    const k = db.prepare("INSERT INTO api_keys (user_id,provider_id,tier_id,key_value,key_prefix,credit,models_json,model_source,model_count,expires_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
+      .run(userId, providerId, provider.tier_id, keyValue, keyPrefix, credit, JSON.stringify(models), source, provider.model_count, expiresAt);
+    const apiKeyId = k.lastInsertRowid;
+    let liveCount = 0;
+    for (let i = 1; i <= count; i++) {
+      const tempEmail = `hf_${randStr(10)}@hestiaflow.internal`;
+      const tempPassword = randStr(16, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
+      let auto = null;
+      try { auto = await tryAutoRegister(provider, tempEmail, tempPassword); } catch { auto = null; }
+      if (auto && auto.live) liveCount++;
+      const storeEmail = (auto && auto.tempEmail) ? auto.tempEmail : tempEmail;
+      const storePass = (auto && auto.tempPassword) ? auto.tempPassword : tempPassword;
+      db.prepare("INSERT INTO harvested_accounts (api_key_id,user_id,provider_id,tier_id,temp_email,temp_password,upstream_api_key,upstream_base_url) VALUES (?,?,?,?,?,?,?,?)")
+        .run(apiKeyId, userId, providerId, provider.tier_id, storeEmail, storePass, auto ? auto.upstreamApiKey : null, auto ? auto.upstreamBaseUrl : null);
+      const msg = `Panen Akun ${i} Berhasil.`;
+      logHarvest(userId, providerId, msg);
+      logs.push(msg);
+    }
+    keys.push({ id: apiKeyId, providerBrand: provider.brand_name, tierSlug: tier ? tier.slug : null, key: userId ? keyValue : undefined, keyPrefix, credit, models, modelSource: source, modelCount: provider.model_count, live: liveCount > 0, combinedAccounts: count, liveAccounts: liveCount });
+    return { count, logs, keys, proxyTotal: _proxyCache.list.length };
+  }
   for (let i = 1; i <= count; i++) {
     const tempEmail = `hf_${randStr(10)}@hestiaflow.internal`;
     const tempPassword = randStr(16, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
@@ -1171,56 +1200,97 @@ app.post("/v1/chat/completions", async (req, res) => {
   const allowed = gatewayKeyModels(key);
   if (allowed.length && !allowed.includes(model)) return res.status(404).json({ error: { message: `Model '${model}' is not included in this API key.`, type: "invalid_request_error", param: "model", code: "model_not_found" } });
   // Upstream resolution (server-side only, never exposed):
-  // 1) This HestiaFlow key's own harvested account (auto-registered upstream key).
+  // 1) This HestiaFlow key's own harvested account(s) (auto-registered upstream key).
+  //    Gratis (2026-10-18): 1 key -> N akun, failover otomatis (coba satu-satu).
   // 2) Provider-level upstream (operator-configured).
   // 3) Active worker key for this provider (provider URL + worker key).
   const provider = key.provider_id ? db.prepare("SELECT * FROM providers WHERE id=?").get(key.provider_id) : null;
   let upstreamUrl = null, upstreamKey = null;
-  const ha = db.prepare("SELECT upstream_api_key, upstream_base_url FROM harvested_accounts WHERE api_key_id=? AND upstream_api_key IS NOT NULL ORDER BY id DESC LIMIT 1").get(key.id);
-  if (ha) { upstreamKey = ha.upstream_api_key; upstreamUrl = ha.upstream_base_url || (provider ? provider.upstream_url : null); }
-  if ((!upstreamUrl || !upstreamKey) && provider) { upstreamUrl = upstreamUrl || provider.upstream_url; upstreamKey = upstreamKey || provider.upstream_api_key; }
-  if (upstreamUrl && !upstreamKey && provider) {
-    const w = db.prepare("SELECT * FROM workers WHERE provider_id=? AND status='active' AND upstream_api_key IS NOT NULL ORDER BY id LIMIT 1").get(provider.id);
-    if (w) upstreamKey = w.upstream_api_key;
+  let upstreamCandidates = [];
+  // Cek tier untuk failover Gratis
+  let isGratisTier = false;
+  try {
+    const t = db.prepare("SELECT slug FROM tiers WHERE id=?").get(key.tier_id);
+    if (t && t.slug === "gratis") isGratisTier = true;
+  } catch {}
+  if (isGratisTier) {
+    // Gratis gabungan: ambil SEMUA akun, coba satu-satu (failover).
+    const has = db.prepare("SELECT upstream_api_key, upstream_base_url FROM harvested_accounts WHERE api_key_id=? AND upstream_api_key IS NOT NULL ORDER BY id ASC").all(key.id);
+    for (const h of has) {
+      upstreamCandidates.push({ key: h.upstream_api_key, url: h.upstream_base_url || (provider ? provider.upstream_url : null) });
+    }
+  } else {
+    const ha = db.prepare("SELECT upstream_api_key, upstream_base_url FROM harvested_accounts WHERE api_key_id=? AND upstream_api_key IS NOT NULL ORDER BY id DESC LIMIT 1").get(key.id);
+    if (ha) upstreamCandidates.push({ key: ha.upstream_api_key, url: ha.upstream_base_url || (provider ? provider.upstream_url : null) });
   }
-  if (!upstreamUrl || !upstreamKey) return res.status(502).json({ error: { message: "Upstream provider not configured. Operator must configure the provider upstream (Base URL + API key) in Panel Admin.", type: "upstream_error", param: null, code: "upstream_not_configured" } });
+  if (upstreamCandidates.length === 0 && provider) {
+    // Fallback ke provider-level
+    if (provider.upstream_url || provider.upstream_api_key) {
+      upstreamCandidates.push({ key: provider.upstream_api_key, url: provider.upstream_url });
+    }
+  }
+  if (upstreamCandidates.length === 0 && provider) {
+    const w = db.prepare("SELECT * FROM workers WHERE provider_id=? AND status='active' AND upstream_api_key IS NOT NULL ORDER BY id LIMIT 1").get(provider.id);
+    if (w) upstreamCandidates.push({ key: w.upstream_api_key, url: provider.upstream_url });
+  }
+  if (upstreamCandidates.length === 0) return res.status(502).json({ error: { message: "Upstream provider not configured. Operator must configure the provider upstream (Base URL + API key) in Panel Admin.", type: "upstream_error", param: null, code: "upstream_not_configured" } });
   // Gabungan Gratis (2026-10-18): model "uncensored" -> bestllmapi.com (bukan ZeroLimitAI).
   // Provider ZeroLimitAI (auto-register) + bestllmapi.com (manual key) digabung di tier Gratis.
   if (model === "uncensored") {
     const blUrl = process.env.PROVIDER_BESTLLM_UPSTREAM_URL || "https://api.bestllmapi.com/v1";
     const blKey = process.env.PROVIDER_BESTLLM_UPSTREAM_KEY;
-    if (blUrl && blKey) { upstreamUrl = blUrl; upstreamKey = blKey; }
+    if (blUrl && blKey) upstreamCandidates = [{ key: blKey, url: blUrl }];
   }
-  try {
-    const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 120000);
-    const r = await fetch(stripV1(upstreamUrl) + "/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${upstreamKey}`, "User-Agent": "HestiaFlow/1.0" },
-      body: JSON.stringify(req.body),
-      signal: ctl.signal,
-    });
-    if (stream && r.body) {
-      // SSE passthrough: stream provider chunks straight to the client.
-      res.writeHead(r.status, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
-      const reader = r.body.getReader();
-      try {
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          res.write(Buffer.from(value));
-        }
-      } finally { clearTimeout(t); }
-      return res.end();
+  // Failover: coba tiap upstream sampai berhasil (untuk Gratis gabungan).
+  let lastError = null;
+  for (const cand of upstreamCandidates) {
+    const upstreamUrl = cand.url;
+    const upstreamKey = cand.key;
+    if (!upstreamUrl || !upstreamKey) continue;
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 120000);
+      const r = await fetch(stripV1(upstreamUrl) + "/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${upstreamKey}`, "User-Agent": "HestiaFlow/1.0" },
+        body: JSON.stringify(req.body),
+        signal: ctl.signal,
+      });
+      // Jika rate limit / 402 / 403, coba kandidat berikutnya (failover).
+      if ((r.status === 429 || r.status === 402 || r.status === 403) && upstreamCandidates.length > 1) {
+        clearTimeout(t);
+        lastError = `Upstream ${r.status}, coba berikutnya`;
+        continue;
+      }
+      if (stream && r.body) {
+        // SSE passthrough: stream provider chunks straight to the client.
+        res.writeHead(r.status, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+        const reader = r.body.getReader();
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            res.write(Buffer.from(value));
+          }
+        } finally { clearTimeout(t); }
+        return res.end();
+      }
+      clearTimeout(t);
+      const data = await r.json().catch(() => ({}));
+      // Jika error rate limit, coba berikutnya
+      if (data && data.error && /rate[_ ]limit|insufficient|quota/i.test(JSON.stringify(data.error)) && upstreamCandidates.length > 1) {
+        lastError = JSON.stringify(data.error).slice(0, 100);
+        continue;
+      }
+      return res.status(r.status).json(data);
+    } catch (e) {
+      lastError = e && e.message;
+      continue; // Coba kandidat berikutnya
     }
-    clearTimeout(t);
-    const data = await r.json().catch(() => ({}));
-    return res.status(r.status).json(data);
-  } catch (e) {
-    console.error("[gateway] chat forward failed:", e && e.message);
-    if (!res.headersSent) return res.status(502).json({ error: { message: "Upstream request failed.", type: "upstream_error", param: null, code: "upstream_request_failed" } });
-    return res.end();
   }
+  console.error("[gateway] all upstreams failed:", lastError);
+  if (!res.headersSent) return res.status(502).json({ error: { message: "Semua upstream gagal. Coba lagi nanti.", type: "upstream_error", param: null, code: "upstream_all_failed" } });
+  return res.end();
 });
 
 // SPA fallback
