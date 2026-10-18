@@ -742,7 +742,7 @@ function genVoucherCode() { const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; let
 async function doHarvest({ userId, providerId, count }) {
   const provider = db.prepare("SELECT * FROM providers WHERE id=?").get(providerId);
   if (!provider) throw new Error("provider_not_found");
-  if (!Number.isInteger(count) || count < 1 || count > 50) throw new Error("count_must_be_1_to_50");
+  if (!Number.isInteger(count) || count < 1 || count > 5000) throw new Error("count_must_be_1_to_5000");
   const tier = db.prepare("SELECT * FROM tiers WHERE id=?").get(provider.tier_id);
   // Pro DIKUNCI sementara (2026-10-18): provider OpenToke mati (verifikasi gak masuk, API error).
   if (tier && tier.slug === "pro") throw new Error("Tier Pro sedang dalam perbaikan. Coba lagi nanti.");
