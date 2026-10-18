@@ -95,7 +95,7 @@ async function redeemVoucher() {
 async function loadUser() {
   try {
     $("#userRoot").innerHTML = `
-    <div class="section"><h2>Panen Akun</h2><p class="sub">Panen akun provider — tiap panen membuat 1 akun baru dengan email sementara yang berbeda-beda. Email & sandi tidak pernah ditampilkan. Limit: Gratis 2, Plus 10, Pro 20, Prem 50 akun.</p>
+    <div class="section"><h2>Panen Akun</h2><p class="sub">Panen akun provider — tiap panen membuat 1 akun baru dengan email sementara yang berbeda-beda. Email & sandi tidak pernah ditampilkan. Limit: Gratis 100, Plus 500, Pro 1500, Prem 5000 akun.</p>
       <div class="card">
         <div style="text-align:center"><label>Provider</label><div class="tier-picker"><button class="btn btn-plum tier-picker-btn" id="tierPickerBtn" onclick="toggleTierPicker()">Tier: <span id="tierPickerLabel">Gratis • 2 Model</span> ▾</button><div id="harvestProviderSidebar" class="tier-sidebar tier-picker-pop" style="display:none"></div></div></div>
         <div style="margin-top:14px;text-align:center"><label id="harvestCountLabel">Jumlah akun (1–2)</label><div class="stepper">
@@ -192,8 +192,8 @@ function renderHarvestSidebar() {
   if (!items.length) { el.innerHTML = `<p class="muted">Belum ada provider.</p>`; return; }
   const myRank = TIER_RANK[(ME && ME.tier_slug) || "gratis"] ?? 0;
   const selItem = items.find((x) => x.p.id === selectedHarvestProviderId);
-  if (!selectedHarvestProviderId || !selItem || (TIER_RANK[selItem.tier.slug] ?? 0) > myRank) selectedHarvestProviderId = (items.find((x) => (TIER_RANK[x.tier.slug] ?? 0) <= myRank) || items[0]).p.id;
-  el.innerHTML = items.map((x) => { const locked = (TIER_RANK[x.tier.slug] ?? 0) > myRank; return `<div class="tier-side-opt${x.p.id === selectedHarvestProviderId ? " sel" : ""}${locked ? " locked" : ""}" data-pid="${x.p.id}" onclick="${locked ? "showTierLocked()" : `selectHarvestProvider(${x.p.id})`}">${locked ? "🔒 " : ""}${esc(short[x.tier.slug] || x.tier.name)} • ${x.p.modelCount} Model</div>`; }).join("");
+  if (!selectedHarvestProviderId || !selItem || (TIER_RANK[selItem.tier.slug] ?? 0) > myRank || selItem.tier.slug === "pro") selectedHarvestProviderId = (items.find((x) => (TIER_RANK[x.tier.slug] ?? 0) <= myRank && x.tier.slug !== "pro") || items.find((x) => x.tier.slug !== "pro") || items[0]).p.id;
+  el.innerHTML = items.map((x) => { const locked = (TIER_RANK[x.tier.slug] ?? 0) > myRank || x.tier.slug === "pro"; return `<div class="tier-side-opt${x.p.id === selectedHarvestProviderId ? " sel" : ""}${locked ? " locked" : ""}" data-pid="${x.p.id}" onclick="${locked ? "showTierLocked()" : `selectHarvestProvider(${x.p.id})`}">${locked ? "🔒 " : ""}${esc(short[x.tier.slug] || x.tier.name)} • ${x.p.modelCount} Model</div>`; }).join("");
   const cur = items.find((x) => x.p.id === selectedHarvestProviderId);
   const lbl = $("#tierPickerLabel"); if (lbl && cur) lbl.textContent = `${short[cur.tier.slug] || cur.tier.name} • ${cur.p.modelCount} Model`;
 }
