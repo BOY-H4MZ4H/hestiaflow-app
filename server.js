@@ -80,7 +80,7 @@ function seed() {
   // Migrasi 2026-10-18: Luna GANTI jadi Zerolimit (ZeroLimitAI + bestllmapi.com) untuk tier Gratis.
   // 6 model (5 ZeroLimitAI :free + 1 bestllmapi.com "uncensored"). 100 calls/hari, 7 hari per akun. Auto-register full otomatis (no verifikasi email).
   db.prepare("UPDATE providers SET brand_name=?, tagline=?, model_count=?, model_list_json=?, model_notes_json=?, credit_note=?, default_credit=?, upstream_url=? WHERE brand_name IN ('Luna','Zerolimit')").run(
-    "Zerolimit",
+    "Luna",
     "6 model gratis! 5 ZeroLimitAI + 1 BestLLM.",
     6,
     JSON.stringify(["google/gemma-4-31b-it:free","google/gemma-4-26b-a4b-it:free","dots-studio/dots-3-note-preview:free","cohere/north-mini-code:free","xingchen-agi/xing4.0-29b-a4b:free","uncensored"]),
@@ -650,7 +650,7 @@ async function tryAutoRegister(provider, tempEmail, tempPassword) {
     return null;
   }
   // Zerolimit = ZeroLimitAI (2026-10-18, untuk tier Gratis). Register -> NextAuth login -> POST /api/keys.
-  if ((provider.brand_name || "").toLowerCase() === "zerolimit") {
+  if ((provider.brand_name || "").toLowerCase() === "luna") {
     const zl = await tryAutoRegisterZerolimit(provider);
     if (zl) return zl;
     return null;
@@ -782,8 +782,8 @@ async function doHarvest({ userId, providerId, count }) {
   // Gratis tier: enforce max 2 models.
   if (tier && tier.max_models != null && models.length > tier.max_models) models = models.slice(0, tier.max_models);
   // Gabungan Gratis (2026-10-18): ZeroLimitAI + bestllmapi.com ("uncensored").
-  // Kalau provider brand "zerolimit", tambahkan model "uncensored" (dari bestllmapi.com).
-  const isZerolimitCombine = (provider.brand_name || "").toLowerCase() === "zerolimit";
+  // Kalau provider brand "luna", tambahkan model "uncensored" (dari bestllmapi.com).
+  const isZerolimitCombine = (provider.brand_name || "").toLowerCase() === "luna";
   if (isZerolimitCombine && !models.includes("uncensored")) {
     models = [...models, "uncensored"];
   }
