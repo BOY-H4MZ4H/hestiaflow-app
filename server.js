@@ -815,7 +815,10 @@ async function doHarvest({ userId, providerId, count }) {
       logHarvest(userId, providerId, msg);
       logs.push(msg);
     }
-    keys.push({ id: apiKeyId, providerBrand: provider.brand_name, tierSlug: tier ? tier.slug : null, key: userId ? keyValue : undefined, keyPrefix, credit, models, modelSource: source, modelCount: provider.model_count, live: liveCount > 0, combinedAccounts: count, liveAccounts: liveCount });
+    // Jumlahkan credit untuk akun gabungan (perintah Hestia 2026-10-19).
+    const totalCredit = credit != null ? credit * liveCount : null;
+    db.prepare("UPDATE api_keys SET credit=? WHERE id=?").run(totalCredit, apiKeyId);
+    keys.push({ id: apiKeyId, providerBrand: provider.brand_name, tierSlug: tier ? tier.slug : null, key: userId ? keyValue : undefined, keyPrefix, credit: totalCredit, models, modelSource: source, modelCount: provider.model_count, live: liveCount > 0, combinedAccounts: count, liveAccounts: liveCount });
     return { count, logs, keys, proxyTotal: _proxyCache.list.length };
   }
   for (let i = 1; i <= count; i++) {
