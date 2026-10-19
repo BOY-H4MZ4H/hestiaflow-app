@@ -600,58 +600,27 @@ async function tryAutoRegisterZerolimit(provider) {
 }
 
 async function tryAutoRegisterBestllm(provider) {
-  // bestllmapi.com (2026-10-19): POST /api/account {do:"signup",email,password} -> {key, balance_usd:0.5}. Tanpa verifikasi, key langsung muncul.
-  // Pakai proxy (2026-10-19) karena Railway IP diblokir. Prioritas: PROXY_LIST env (52 proxy hidup milik Hestia), lalu proxyscrape.
-  const siteBase = "https://bestllmapi.com";
+  // bestllmapi.com (2026-10-19): via Cloudflare Worker relay (IP Railway diblokir).
+  // Worker: https://bestllm-relay.srkirana44.workers.dev/ (dibuat 2026-10-19).
   const apiBase = "https://api.bestllmapi.com/v1";
+  const relayUrl = process.env.BESTLLM_RELAY_URL;
+  const relaySecret = process.env.BESTLLM_RELAY_SECRET;
+  if (!relayUrl || !relaySecret) { console.log("[bestllm] relay not configured"); return null; }
   const tempEmail = `bestllm${Date.now()}${Math.floor(Math.random()*9999)}@tempomail.id`;
   const tempPassword = `Bestllm${Math.floor(100000+Math.random()*900000)}@#`;
-  const doSignup = async (dispatcher) => {
-    const r = await fetch(siteBase + "/api/account", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Requested-With": "site", "User-Agent": randUA() },
-      body: JSON.stringify({ do: "signup", email: tempEmail, password: tempPassword }),
-      ...(dispatcher ? { dispatcher } : {}),
-      signal: AbortSignal.timeout(20000)
-    });
-    return r.json().catch(() => null);
-  };
-  const getProxies = async () => {
-    const list = [];
-    // 1. PROXY_LIST env (milik Hestia, 52 proxy hidup).
-    try {
-      const envList = (process.env.PROXY_LIST || "").split(/[\r\n,]+/).map(s => s.trim()).filter(s => /^\d+\.\d+\.\d+\.\d+:\d+$/.test(s));
-      list.push(...envList);
-    } catch {}
-    // 2. proxyscrape free.
-    try {
-      const free = await fetchProxyList().catch(() => []);
-      list.push(...free);
-    } catch {}
-    return [...new Set(list)];
-  };
   try {
-    const proxies = await getProxies();
-    for (let i = 0; i < Math.min(5, proxies.length); i++) {
-      try {
-        const disp = proxyDispatcher(proxies[Math.floor(Math.random() * proxies.length)]);
-        if (!disp) continue;
-        const j = await doSignup(disp);
-        if (j && j.ok && j.key) {
-          console.log(`[bestllm] auto-register ok via proxy, balance=${j.balance_usd}`);
-          return { upstreamApiKey: j.key, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: true, balance: j.balance_usd };
-        }
-      } catch {}
-    }
-    // Fallback direct.
-    const j = await doSignup(null);
-    if (j && j.ok && j.key) {
-      console.log(`[bestllm] auto-register ok direct, balance=${j.balance_usd}`);
-      return { upstreamApiKey: j.key, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: true, balance: j.balance_usd };
-    }
-    console.log("[bestllm] signup failed");
-    return null;
-  } catch (e) { console.log("[bestllm] exception", e && e.message); return null; }
+    const r = await fetch(relayUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-relay-secret": relaySecret },
+      body: JSON.stringify({ do: "signup", email: tempEmail, password: tempPassword }),
+      signal: AbortSignal.timeout(25000)
+    });
+    const st = r.status;
+    const j = await r.json().catch(() => null);
+    if (!j || !j.ok || !j.key) { console.log("[bestllm] relay signup failed", st, j && j.error); return null; }
+    console.log(`[bestllm] auto-register ok via relay, balance=${j.balance_usd}`);
+    return { upstreamApiKey: j.key, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: true, balance: j.balance_usd };
+  } catch (e) { console.log("[bestllm] relay exception", e && e.message); return null; }
 }
 
 async function tryAutoRegisterNearresearch(provider) {
