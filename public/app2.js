@@ -116,13 +116,13 @@ async function loadUser() {
     <div class="section"><h2>Model</h2>
       <div class="termbox" id="modelBox" style="max-height:160px;overflow-y:auto"><div class="term-line">Memuat model…</div></div>
     </div>
-    <div class="section"><h2>Contoh Curl Chat</h2>
-      <div class="termbox" style="overflow:auto"><pre id="curlExample" style="margin:0;white-space:pre">curl https://hestiaflow-app-production.up.railway.app/v1/chat/completions \
+    <div class="section"><h2>Curl</h2>
+      <div class="termbox" style="overflow:auto"><pre id="curlExample" style="margin:0;white-space:pre">curl https://hestiaflow.lovie.me/v1/chat/completions \
   -H "Authorization: Bearer API_KEY_KAMU" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "qwen3-coder:30b",
-    "messages": [{"role": "user", "content": "Halo!"}],
+    "messages": [{"role": "user", "content": "Halo Saya Hestia Kamu siapa?"}],
     "stream": false
   }'</pre></div>
       <div style="margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="copyCurlExample(this)">Salin</button></div>
