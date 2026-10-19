@@ -79,7 +79,7 @@ function seed() {
   db.prepare("UPDATE providers SET model_count=?, model_list_json=?, model_notes_json=?, credit_note=?, default_credit=? WHERE brand_name=?").run(30, JSON.stringify(AURORA_MODELS), JSON.stringify({}), "$0.20 per akun terverifikasi.", 200000, "Aurora");
   // Migrasi 2026-10-18: Luna GANTI jadi Zerolimit (ZeroLimitAI + bestllmapi.com) untuk tier Gratis.
   // 6 model (5 ZeroLimitAI :free + 1 bestllmapi.com "uncensored"). 100 calls/hari, 7 hari per akun. Auto-register full otomatis (no verifikasi email).
-  db.prepare("UPDATE providers SET brand_name=?, tagline=?, model_count=?, model_list_json=?, model_notes_json=?, credit_note=?, default_credit=?, upstream_url=? WHERE brand_name=?").run(
+  db.prepare("UPDATE providers SET brand_name=?, tagline=?, model_count=?, model_list_json=?, model_notes_json=?, credit_note=?, default_credit=?, upstream_url=? WHERE brand_name IN ('Luna','Zerolimit')").run(
     "Zerolimit",
     "6 model gratis! 5 ZeroLimitAI + 1 BestLLM.",
     6,
@@ -87,8 +87,7 @@ function seed() {
     JSON.stringify({}),
     "100 calls/hari, 7 hari per akun.",
     100,
-    "https://www.zerolimitai.com/api/v1",
-    "Luna"
+    "https://www.zerolimitai.com/api/v1"
   );
   db.prepare("UPDATE tiers SET max_models=? WHERE slug=?").run(6, "gratis");
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("TIER GRATIS", "gratis");
