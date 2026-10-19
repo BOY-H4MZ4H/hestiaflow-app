@@ -609,8 +609,7 @@ async function tryAutoRegisterBestllm(provider) {
   const tempEmail = `bestllm${Date.now()}${Math.floor(Math.random()*9999)}@tempomail.id`;
   const tempPassword = `Bestllm${Math.floor(100000+Math.random()*900000)}@#`;
   try {
-    const signupUrl = relayUrl.replace(/\/$/, "") + "/signup";
-    const r = await fetch(signupUrl, {
+    const r = await fetch(relayUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-relay-secret": relaySecret },
       body: JSON.stringify({ do: "signup", email: tempEmail, password: tempPassword }),
@@ -815,34 +814,7 @@ async function doHarvest({ userId, providerId, count }) {
   const logs = []; const keys = [];
   // Gratis: gabung N akun jadi 1 key (2026-10-18, perintah Hestia "Tier Gratis Aja Dulu").
   // 1 api_keys row, N harvested_accounts rows. Gateway failover otomatis.
-  const isGratisCombine = (tier && tier.slug === "gratis");
-  if (isGratisCombine) {
-    const keyValue = `hgw-${randHex(16)}`;
-    const keyPrefix = keyValue.slice(0, 12);
-    const expiresAt = new Date(Date.now() + 2*24*60*60*1000).toISOString();
-    const k = db.prepare("INSERT INTO api_keys (user_id,provider_id,tier_id,key_value,key_prefix,credit,models_json,model_source,model_count,expires_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
-      .run(userId, providerId, provider.tier_id, keyValue, keyPrefix, null, JSON.stringify(models), source, provider.model_count, expiresAt);
-    const apiKeyId = k.lastInsertRowid;
-    let liveCount = 0;
-    for (let i = 1; i <= count; i++) {
-      const tempEmail = `hf_${randStr(10)}@hestiaflow.internal`;
-      const tempPassword = randStr(16, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
-      let auto = null;
-      try { auto = await tryAutoRegister(provider, tempEmail, tempPassword); } catch { auto = null; }
-      if (auto && auto.live) liveCount++;
-      const storeEmail = (auto && auto.tempEmail) ? auto.tempEmail : tempEmail;
-      const storePass = (auto && auto.tempPassword) ? auto.tempPassword : tempPassword;
-      db.prepare("INSERT INTO harvested_accounts (api_key_id,user_id,provider_id,tier_id,temp_email,temp_password,upstream_api_key,upstream_base_url) VALUES (?,?,?,?,?,?,?,?)")
-        .run(apiKeyId, userId, providerId, provider.tier_id, storeEmail, storePass, auto ? auto.upstreamApiKey : null, auto ? auto.upstreamBaseUrl : null);
-      const msg = `Panen Akun ${i} Berhasil.`;
-      logHarvest(userId, providerId, msg);
-      logs.push(msg);
-    }
-    // Credit null untuk Gratis (bestllmapi auto-register di-scrap 2026-10-19, IP diblokir).
-    db.prepare("UPDATE api_keys SET credit=? WHERE id=?").run(null, apiKeyId);
-    keys.push({ id: apiKeyId, providerBrand: provider.brand_name, tierSlug: tier ? tier.slug : null, key: userId ? keyValue : undefined, keyPrefix, credit: null, models, modelSource: source, modelCount: provider.model_count, live: liveCount > 0, combinedAccounts: count, liveAccounts: liveCount });
-    return { count, logs, keys, proxyTotal: _proxyCache.list.length };
-  }
+
   for (let i = 1; i <= count; i++) {
     const tempEmail = `hf_${randStr(10)}@hestiaflow.internal`;
     const tempPassword = randStr(16, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
@@ -1275,26 +1247,12 @@ app.post("/v1/chat/completions", async (req, res) => {
     try {
       const ctl = new AbortController();
       const t = setTimeout(() => ctl.abort(), 120000);
-      // ZeroLimitAI via Cloudflare Worker relay (bypass IP block) - 2026-10-19
-      const relayUrl = process.env.BESTLLM_RELAY_URL;
-      const relaySecret = process.env.BESTLLM_RELAY_SECRET;
-      let r;
-      if (upstreamUrl.includes("zerolimitai") && relayUrl && relaySecret) {
-        const chatUrl = relayUrl.replace(/\/$/, "") + "/chat";
-        r = await fetch(chatUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-relay-secret": relaySecret },
-          body: JSON.stringify({ apiKey: upstreamKey, model, messages, max_tokens: req.body.max_tokens, stream: !!stream }),
-          signal: ctl.signal,
-        });
-      } else {
-        r = await fetch(stripV1(upstreamUrl) + "/v1/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${upstreamKey}`, "User-Agent": "HestiaFlow/1.0" },
-          body: JSON.stringify(req.body),
-          signal: ctl.signal,
-        });
-      }
+      const r = await fetch(stripV1(upstreamUrl) + "/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${upstreamKey}`, "User-Agent": "HestiaFlow/1.0" },
+        body: JSON.stringify(req.body),
+        signal: ctl.signal,
+      });
       // Jika rate limit / 402 / 403, coba kandidat berikutnya (failover).
       if ((r.status === 429 || r.status === 402 || r.status === 403) && upstreamCandidates.length > 1) {
         clearTimeout(t);
