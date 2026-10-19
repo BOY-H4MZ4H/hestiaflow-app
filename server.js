@@ -609,7 +609,8 @@ async function tryAutoRegisterBestllm(provider) {
   const tempEmail = `bestllm${Date.now()}${Math.floor(Math.random()*9999)}@tempomail.id`;
   const tempPassword = `Bestllm${Math.floor(100000+Math.random()*900000)}@#`;
   try {
-    const r = await fetch(relayUrl, {
+    const signupUrl = relayUrl.replace(/\/$/, "") + "/signup";
+    const r = await fetch(signupUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-relay-secret": relaySecret },
       body: JSON.stringify({ do: "signup", email: tempEmail, password: tempPassword }),
@@ -1274,12 +1275,26 @@ app.post("/v1/chat/completions", async (req, res) => {
     try {
       const ctl = new AbortController();
       const t = setTimeout(() => ctl.abort(), 120000);
-      const r = await fetch(stripV1(upstreamUrl) + "/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${upstreamKey}`, "User-Agent": "HestiaFlow/1.0" },
-        body: JSON.stringify(req.body),
-        signal: ctl.signal,
-      });
+      // ZeroLimitAI via Cloudflare Worker relay (bypass IP block) - 2026-10-19
+      const relayUrl = process.env.BESTLLM_RELAY_URL;
+      const relaySecret = process.env.BESTLLM_RELAY_SECRET;
+      let r;
+      if (upstreamUrl.includes("zerolimitai") && relayUrl && relaySecret) {
+        const chatUrl = relayUrl.replace(/\/$/, "") + "/chat";
+        r = await fetch(chatUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-relay-secret": relaySecret },
+          body: JSON.stringify({ apiKey: upstreamKey, model, messages, max_tokens: req.body.max_tokens, stream: !!stream }),
+          signal: ctl.signal,
+        });
+      } else {
+        r = await fetch(stripV1(upstreamUrl) + "/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${upstreamKey}`, "User-Agent": "HestiaFlow/1.0" },
+          body: JSON.stringify(req.body),
+          signal: ctl.signal,
+        });
+      }
       // Jika rate limit / 402 / 403, coba kandidat berikutnya (failover).
       if ((r.status === 429 || r.status === 402 || r.status === 403) && upstreamCandidates.length > 1) {
         clearTimeout(t);
