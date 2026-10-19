@@ -849,13 +849,11 @@ async function doHarvest({ userId, providerId, count }) {
   if (isGratisCombine) {
     const keyValue = `hgw-${randHex(16)}`;
     const keyPrefix = keyValue.slice(0, 12);
-    // Credit dari bestllmapi aja (perintah Hestia 2026-10-19): $0.50 per akun, bukan calls Zerolimit.
     const expiresAt = new Date(Date.now() + 2*24*60*60*1000).toISOString();
     const k = db.prepare("INSERT INTO api_keys (user_id,provider_id,tier_id,key_value,key_prefix,credit,models_json,model_source,model_count,expires_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
       .run(userId, providerId, provider.tier_id, keyValue, keyPrefix, null, JSON.stringify(models), source, provider.model_count, expiresAt);
     const apiKeyId = k.lastInsertRowid;
     let liveCount = 0;
-    let totalBalanceCents = 0;
     for (let i = 1; i <= count; i++) {
       const tempEmail = `hf_${randStr(10)}@hestiaflow.internal`;
       const tempPassword = randStr(16, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
@@ -866,21 +864,13 @@ async function doHarvest({ userId, providerId, count }) {
       const storePass = (auto && auto.tempPassword) ? auto.tempPassword : tempPassword;
       db.prepare("INSERT INTO harvested_accounts (api_key_id,user_id,provider_id,tier_id,temp_email,temp_password,upstream_api_key,upstream_base_url) VALUES (?,?,?,?,?,?,?,?)")
         .run(apiKeyId, userId, providerId, provider.tier_id, storeEmail, storePass, auto ? auto.upstreamApiKey : null, auto ? auto.upstreamBaseUrl : null);
-      // bestllmapi: daftar juga per akun (2026-10-19, perintah Hestia "buat Skrang").
-      let blm = null;
-      try { blm = await tryAutoRegisterBestllm(provider); } catch { blm = null; }
-      if (blm && blm.upstreamApiKey) {
-        db.prepare("INSERT INTO harvested_accounts (api_key_id,user_id,provider_id,tier_id,temp_email,temp_password,upstream_api_key,upstream_base_url) VALUES (?,?,?,?,?,?,?,?)")
-          .run(apiKeyId, userId, providerId, provider.tier_id, blm.tempEmail, blm.tempPassword, blm.upstreamApiKey, blm.upstreamBaseUrl);
-        totalBalanceCents += Math.round((blm.balance || 0.5) * 100);
-      }
       const msg = `Panen Akun ${i} Berhasil.`;
       logHarvest(userId, providerId, msg);
       logs.push(msg);
     }
-    // Credit dari bestllmapi aja ($0.50 per akun dalam cents), bukan calls Zerolimit (perintah Hestia 2026-10-19).
-    db.prepare("UPDATE api_keys SET credit=? WHERE id=?").run(totalBalanceCents, apiKeyId);
-    keys.push({ id: apiKeyId, providerBrand: provider.brand_name, tierSlug: tier ? tier.slug : null, key: userId ? keyValue : undefined, keyPrefix, credit: totalBalanceCents, models, modelSource: source, modelCount: provider.model_count, live: liveCount > 0, combinedAccounts: count, liveAccounts: liveCount });
+    // Credit null untuk Gratis (bestllmapi auto-register di-scrap 2026-10-19, IP diblokir).
+    db.prepare("UPDATE api_keys SET credit=? WHERE id=?").run(null, apiKeyId);
+    keys.push({ id: apiKeyId, providerBrand: provider.brand_name, tierSlug: tier ? tier.slug : null, key: userId ? keyValue : undefined, keyPrefix, credit: null, models, modelSource: source, modelCount: provider.model_count, live: liveCount > 0, combinedAccounts: count, liveAccounts: liveCount });
     return { count, logs, keys, proxyTotal: _proxyCache.list.length };
   }
   for (let i = 1; i <= count; i++) {
@@ -1302,16 +1292,9 @@ app.post("/v1/chat/completions", async (req, res) => {
   // Gabungan Gratis (2026-10-18): model "uncensored" -> bestllmapi.com (bukan ZeroLimitAI).
   // Provider ZeroLimitAI (auto-register) + bestllmapi.com (manual key) digabung di tier Gratis.
   if (model === "uncensored") {
-    // Pakai key bestllmapi per-akun (dari harvested_accounts hasil panen), bukan shared env (2026-10-19).
-    const blCandidates = upstreamCandidates.filter(c => c.url && c.url.includes("bestllmapi.com"));
-    if (blCandidates.length > 0) {
-      upstreamCandidates = blCandidates;
-    } else {
-      // Fallback ke env untuk kompatibilitas (key lama).
-      const blUrl = process.env.PROVIDER_BESTLLM_UPSTREAM_URL || "https://api.bestllmapi.com/v1";
-      const blKey = process.env.PROVIDER_BESTLLM_UPSTREAM_KEY;
-      if (blUrl && blKey) upstreamCandidates = [{ key: blKey, url: blUrl }];
-    }
+    const blUrl = process.env.PROVIDER_BESTLLM_UPSTREAM_URL || "https://api.bestllmapi.com/v1";
+    const blKey = process.env.PROVIDER_BESTLLM_UPSTREAM_KEY;
+    if (blUrl && blKey) upstreamCandidates = [{ key: blKey, url: blUrl }];
   }
   // Failover: coba tiap upstream sampai berhasil (untuk Gratis gabungan).
   let lastError = null;
