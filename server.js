@@ -601,7 +601,7 @@ async function tryAutoRegisterZerolimit(provider) {
 
 async function tryAutoRegisterBestllm(provider) {
   // bestllmapi.com (2026-10-19): POST /api/account {do:"signup",email,password} -> {key, balance_usd:0.5}. Tanpa verifikasi, key langsung muncul.
-  // Pakai proxy (2026-10-19) karena Railway IP diblokir.
+  // Pakai proxy (2026-10-19) karena Railway IP diblokir. Prioritas: PROXY_LIST env (52 proxy hidup milik Hestia), lalu proxyscrape.
   const siteBase = "https://bestllmapi.com";
   const apiBase = "https://api.bestllmapi.com/v1";
   const tempEmail = `bestllm${Date.now()}${Math.floor(Math.random()*9999)}@tempomail.id`;
@@ -616,12 +616,26 @@ async function tryAutoRegisterBestllm(provider) {
     });
     return r.json().catch(() => null);
   };
+  const getProxies = async () => {
+    const list = [];
+    // 1. PROXY_LIST env (milik Hestia, 52 proxy hidup).
+    try {
+      const envList = (process.env.PROXY_LIST || "").split(/[\r\n,]+/).map(s => s.trim()).filter(s => /^\d+\.\d+\.\d+\.\d+:\d+$/.test(s));
+      list.push(...envList);
+    } catch {}
+    // 2. proxyscrape free.
+    try {
+      const free = await fetchProxyList().catch(() => []);
+      list.push(...free);
+    } catch {}
+    return [...new Set(list)];
+  };
   try {
-    // Coba via proxy dulu (3x).
-    const proxies = await fetchProxyList().catch(() => []);
-    for (let i = 0; i < Math.min(3, proxies.length); i++) {
+    const proxies = await getProxies();
+    for (let i = 0; i < Math.min(5, proxies.length); i++) {
       try {
         const disp = proxyDispatcher(proxies[Math.floor(Math.random() * proxies.length)]);
+        if (!disp) continue;
         const j = await doSignup(disp);
         if (j && j.ok && j.key) {
           console.log(`[bestllm] auto-register ok via proxy, balance=${j.balance_usd}`);
