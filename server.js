@@ -773,6 +773,7 @@ async function doHarvest({ userId, providerId, count }) {
   const tier = db.prepare("SELECT * FROM tiers WHERE id=?").get(provider.tier_id);
   // Pro DIKUNCI sementara (2026-10-18): provider OpenToke mati (verifikasi gak masuk, API error).
   if (tier && tier.slug === "pro") throw new Error("Tier Pro sedang dalam perbaikan. Coba lagi nanti.");
+  if (tier && (tier.slug === "plus" || tier.slug === "premium")) throw new Error("Segera Hadir!");
   // Kunci tier: user tidak bisa panen tier di atas paketnya (admin userId=null = bebas).
   if (userId != null && tier && TIER_RANK[tier.slug] != null) {
     const u = db.prepare("SELECT COALESCE(tier_slug,'gratis') AS tier_slug,tier_expires_at FROM users WHERE id=?").get(userId);
@@ -1187,6 +1188,7 @@ function gatewayAuth(req) {
     try {
       const t = db.prepare("SELECT slug FROM tiers WHERE id=?").get(key.tier_id);
       if (t && t.slug === "pro") key._pro_locked = true;
+      if (t && (t.slug === "plus" || t.slug === "premium")) key._coming_soon = true;
     } catch {}
   }
   // Cek masa Gratis TOTAL (2 hari dari panen pertama) — 2026-10-18. Abis 2 hari, key mati total.
@@ -1214,6 +1216,7 @@ app.get("/v1/models", (req, res) => {
   const key = gatewayAuth(req);
   if (!key) return res.status(401).json({ error: { message: "Incorrect API key provided. You can find your HestiaFlow API key at Halaman Pengguna.", type: "invalid_request_error", param: null, code: "invalid_api_key" } });
   if (key._pro_locked) return res.status(401).json({ error: { message: "Tier Pro sedang dalam perbaikan. Coba lagi nanti.", type: "invalid_request_error", param: null, code: "pro_locked" } });
+  if (key._coming_soon) return res.status(401).json({ error: { message: "Segera Hadir!", type: "invalid_request_error", param: null, code: "coming_soon" } });
   if (key._expired) return res.status(401).json({ error: { message: "API key sudah kadaluarsa (Gratis: 2 hari). Panen lagi atau upgrade paket!", type: "invalid_request_error", param: null, code: "key_expired" } });
   const models = gatewayKeyModels(key);
   const now = Math.floor(Date.now() / 1000);
@@ -1223,6 +1226,7 @@ app.post("/v1/chat/completions", async (req, res) => {
   const key = gatewayAuth(req);
   if (!key) return res.status(401).json({ error: { message: "Incorrect API key provided.", type: "invalid_request_error", param: null, code: "invalid_api_key" } });
   if (key._pro_locked) return res.status(401).json({ error: { message: "Tier Pro sedang dalam perbaikan. Coba lagi nanti.", type: "invalid_request_error", param: null, code: "pro_locked" } });
+  if (key._coming_soon) return res.status(401).json({ error: { message: "Segera Hadir!", type: "invalid_request_error", param: null, code: "coming_soon" } });
   if (key._expired) return res.status(401).json({ error: { message: "API key sudah kadaluarsa (Gratis: 2 hari). Panen lagi atau upgrade paket!", type: "invalid_request_error", param: null, code: "key_expired" } });
   const { model, messages, stream } = req.body || {};
   if (!model || !Array.isArray(messages) || !messages.length) return res.status(400).json({ error: { message: "model and messages are required.", type: "invalid_request_error", param: null, code: "invalid_request" } });
