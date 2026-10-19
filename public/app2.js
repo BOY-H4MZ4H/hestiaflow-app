@@ -117,7 +117,7 @@ async function loadUser() {
       <div class="termbox" id="modelBox" style="max-height:160px;overflow-y:auto"><div class="term-line">Memuat model…</div></div>
     </div>
     <div class="section"><h2>Curl</h2>
-      <div class="termbox" style="overflow:auto"><pre id="curlExample" style="margin:0;white-space:pre-wrap;word-break:break-word;font-size:12px">curl https://hestiaflow.lovie.me/v1/chat/completions \
+      <div class="termbox" style="overflow:auto"><pre id="curlExample" style="margin:0;white-space:pre;font-size:13px">curl https://hestiaflow.lovie.me/v1/chat/completions \
   -H "Authorization: Bearer API_KEY_KAMU" \
   -H "Content-Type: application/json" \
   -d '{
