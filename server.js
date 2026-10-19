@@ -609,7 +609,8 @@ async function tryAutoRegisterBestllm(provider) {
   const tempEmail = `bestllm${Date.now()}${Math.floor(Math.random()*9999)}@tempomail.id`;
   const tempPassword = `Bestllm${Math.floor(100000+Math.random()*900000)}@#`;
   try {
-    const r = await fetch(relayUrl, {
+    const signupUrl = relayUrl.replace(/\/$/, "") + "/signup";
+    const r = await fetch(signupUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-relay-secret": relaySecret },
       body: JSON.stringify({ do: "signup", email: tempEmail, password: tempPassword }),
@@ -656,10 +657,18 @@ async function tryAutoRegisterNearresearch(provider) {
 async function tryAutoRegister(provider, tempEmail, tempPassword) {
   const base = (provider.upstream_url || "").replace(/\/$/, "");
   if (!base) return null;
-  // Brand-specific flows (proven by operator's own scripts). Luna first (no verification).
-  if ((provider.brand_name || "").toLowerCase() === "luna") {
-    const luna = await tryAutoRegisterLuna(provider);
-    if (luna) return luna;
+  // Brand-specific flows (proven by operator's own scripts).
+  // Luna with bestllmapi URL -> try bestllmapi (via Worker relay)
+  const lunaUrl = (provider.upstream_url || "").toLowerCase();
+  if ((provider.brand_name || "").toLowerCase() === "luna" && lunaUrl.includes("bestllmapi")) {
+    const bl = await tryAutoRegisterBestllm(provider);
+    if (bl) return bl;
+    return null;
+  }
+  // Luna with zerolimitai URL -> try zerolimit
+  if ((provider.brand_name || "").toLowerCase() === "luna" && lunaUrl.includes("zerolimitai")) {
+    const zl = await tryAutoRegisterZerolimit(provider);
+    if (zl) return zl;
     return null;
   }
   if ((provider.brand_name || "").toLowerCase() === "nova") {
@@ -673,12 +682,7 @@ async function tryAutoRegister(provider, tempEmail, tempPassword) {
     if (rooyai) return rooyai;
     return null;
   }
-  // Zerolimit = ZeroLimitAI (2026-10-18, untuk tier Gratis). Register -> NextAuth login -> POST /api/keys.
-  if ((provider.brand_name || "").toLowerCase() === "luna") {
-    const zl = await tryAutoRegisterZerolimit(provider);
-    if (zl) return zl;
-    return null;
-  }
+
   // Stella = Near Research (2026-10-18, gantiin Free.ai yang cuma 2 model gratis). Signup langsung dapet key, tanpa verifikasi.
   if ((provider.brand_name || "").toLowerCase() === "stella") {
     const nr = await tryAutoRegisterNearresearch(provider);
