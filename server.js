@@ -91,6 +91,19 @@ function seed() {
   );
   db.prepare("UPDATE tiers SET max_models=? WHERE slug=?").run(1, "gratis");
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("TIER GRATIS", "gratis");
+  // Migrasi 2026-10-19: Luna KEMBALI ke AI4ALL (bestllmapi tidak kasih trial gratis lagi, saldo $0.00 untuk akun baru).
+  // 2 model (qwen3-coder:30b, llama3.2:3b), Always-free BETA, unlimited (no numeric limit).
+  db.prepare("UPDATE providers SET brand_name=?, tagline=?, model_count=?, model_list_json=?, model_notes_json=?, credit_note=?, default_credit=?, upstream_url=? WHERE brand_name IN ('Luna','Zerolimit')").run(
+    "Luna",
+    "Always-free BETA",
+    2,
+    JSON.stringify(["qwen3-coder:30b","llama3.2:3b"]),
+    JSON.stringify({"qwen3-coder:30b":"Muncul di website provider. Chat terverifikasi jalan.","llama3.2:3b":"Terdaftar di /v1/models."}),
+    "Gratis selamanya.",
+    null,
+    "https://ai4all.infergo.ai/v1"
+  );
+  db.prepare("UPDATE tiers SET max_models=? WHERE slug=?").run(2, "gratis");
   // Migrasi 2026-10-18: Stella GANTI provider jadi Near Research (brand tetap "Stella", buang Free.ai yang cuma 2 model gratis).
   // 471 model, $0.25 per akun, tanpa verifikasi email, auto-register full otomatis.
   db.prepare("UPDATE providers SET tagline=?, model_count=?, model_list_json=?, model_notes_json=?, credit_note=?, default_credit=?, upstream_url=? WHERE brand_name=?").run(
@@ -658,17 +671,10 @@ async function tryAutoRegister(provider, tempEmail, tempPassword) {
   const base = (provider.upstream_url || "").replace(/\/$/, "");
   if (!base) return null;
   // Brand-specific flows (proven by operator's own scripts).
-  // Luna with bestllmapi URL -> try bestllmapi (via Worker relay)
-  const lunaUrl = (provider.upstream_url || "").toLowerCase();
-  if ((provider.brand_name || "").toLowerCase() === "luna" && lunaUrl.includes("bestllmapi")) {
-    const bl = await tryAutoRegisterBestllm(provider);
-    if (bl) return bl;
-    return null;
-  }
-  // Luna with zerolimitai URL -> try zerolimit
-  if ((provider.brand_name || "").toLowerCase() === "luna" && lunaUrl.includes("zerolimitai")) {
-    const zl = await tryAutoRegisterZerolimit(provider);
-    if (zl) return zl;
+  // Luna = AI4ALL (2026-10-19, bestllmapi tidak kasih trial gratis lagi).
+  if ((provider.brand_name || "").toLowerCase() === "luna") {
+    const luna = await tryAutoRegisterLuna(provider);
+    if (luna) return luna;
     return null;
   }
   if ((provider.brand_name || "").toLowerCase() === "nova") {
@@ -810,12 +816,6 @@ async function doHarvest({ userId, providerId, count }) {
   if (!models) models = [];
   // Gratis tier: enforce max 2 models.
   if (tier && tier.max_models != null && models.length > tier.max_models) models = models.slice(0, tier.max_models);
-  // Gabungan Gratis (2026-10-18): ZeroLimitAI + bestllmapi.com ("uncensored").
-  // Kalau provider brand "luna", tambahkan model "uncensored" (dari bestllmapi.com).
-  const isZerolimitCombine = (provider.brand_name || "").toLowerCase() === "luna";
-  if (isZerolimitCombine && !models.includes("uncensored")) {
-    models = [...models, "uncensored"];
-  }
   const logs = []; const keys = [];
   // Gratis: gabung N akun jadi 1 key (2026-10-18, perintah Hestia "Tier Gratis Aja Dulu").
   // 1 api_keys row, N harvested_accounts rows. Gateway failover otomatis.
@@ -1268,13 +1268,6 @@ app.post("/v1/chat/completions", async (req, res) => {
     if (w) upstreamCandidates.push({ key: w.upstream_api_key, url: provider.upstream_url });
   }
   if (upstreamCandidates.length === 0) return res.status(502).json({ error: { message: "Upstream provider not configured. Operator must configure the provider upstream (Base URL + API key) in Panel Admin.", type: "upstream_error", param: null, code: "upstream_not_configured" } });
-  // Gabungan Gratis (2026-10-18): model "uncensored" -> bestllmapi.com (bukan ZeroLimitAI).
-  // Provider ZeroLimitAI (auto-register) + bestllmapi.com (manual key) digabung di tier Gratis.
-  if (model === "uncensored") {
-    const blUrl = process.env.PROVIDER_BESTLLM_UPSTREAM_URL || "https://api.bestllmapi.com/v1";
-    const blKey = process.env.PROVIDER_BESTLLM_UPSTREAM_KEY;
-    if (blUrl && blKey) upstreamCandidates = [{ key: blKey, url: blUrl }];
-  }
   // Failover: coba tiap upstream sampai berhasil (untuk Gratis gabungan).
   let lastError = null;
   for (const cand of upstreamCandidates) {
