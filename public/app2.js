@@ -47,15 +47,19 @@ function switchSection(s) { adminSection = s; renderAdminSections(); }
 const TIER_PRICE = { plus: { amount: "Rp 5.000", dur: "3 Hari" }, pro: { amount: "Rp 8.000", dur: "1 Minggu" }, premium: { amount: "Rp 15.000", dur: "2 Minggu" } };
 function tierShowcase() {
   return `<div class="section"><h2>Pilihan Paket Tier</h2>
-  <div class="grid tiers">${TIERS.map((t) => `
-    <div class="card tier ${t.slug === "premium" ? "premium" : ""}">
+  <div class="grid tiers">${TIERS.map((t) => {
+    const isLockedCard = t.slug === "plus" || t.slug === "pro" || t.slug === "premium";
+    const cardClick = isLockedCard ? (t.slug === "pro" ? "showTierLocked()" : "showComingSoon()") : "";
+    return `
+    <div class="card tier ${t.slug === "premium" ? "premium" : ""}${isLockedCard ? " locked-card" : ""}" ${isLockedCard ? `onclick="${cardClick}" style="cursor:pointer;position:relative;"` : ""}>
+      ${isLockedCard ? `<div class="card-lock-overlay">🔒</div>` : ""}
       <div class="tier-head"><span class="badge ${t.slug === "gratis" ? "gratis" : t.slug === "plus" ? "plus" : t.slug === "pro" ? "pro" : "premium"}">${esc(t.badge)}</span>${TIER_PRICE[t.slug] ? `<div class="tier-price"><div class="price">${TIER_PRICE[t.slug].amount}</div><div class="price-dur">${TIER_PRICE[t.slug].dur}</div></div>` : ""}</div>
       ${(t.providers || []).map((p) => `
         <div class="brand"><div class="medal ${t.slug === "premium" ? "gold" : ""}">${esc(p.brand.slice(0, 1))}</div>
         <div><h3>${esc(p.brand)}</h3><p>${esc(p.tagline || "")}</p></div></div>
         <div><span class="chip">${p.modelCount} model</span><span class="chip">${esc(p.creditNote || "")}</span></div>
       `).join("") || `<p class="muted">Belum ada provider di tier ini.</p>`}
-    </div>`).join("")}</div></div>`;
+    </div>`; }).join("")}</div></div>`;
 }
 
 function render() {
