@@ -601,20 +601,42 @@ async function tryAutoRegisterZerolimit(provider) {
 
 async function tryAutoRegisterBestllm(provider) {
   // bestllmapi.com (2026-10-19): POST /api/account {do:"signup",email,password} -> {key, balance_usd:0.5}. Tanpa verifikasi, key langsung muncul.
+  // Pakai proxy (2026-10-19) karena Railway IP diblokir.
   const siteBase = "https://bestllmapi.com";
   const apiBase = "https://api.bestllmapi.com/v1";
   const tempEmail = `bestllm${Date.now()}${Math.floor(Math.random()*9999)}@tempomail.id`;
   const tempPassword = `Bestllm${Math.floor(100000+Math.random()*900000)}@#`;
-  try {
+  const doSignup = async (dispatcher) => {
     const r = await fetch(siteBase + "/api/account", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Requested-With": "site", "User-Agent": "HestiaFlow/1.0" },
-      body: JSON.stringify({ do: "signup", email: tempEmail, password: tempPassword })
+      headers: { "Content-Type": "application/json", "X-Requested-With": "site", "User-Agent": randUA() },
+      body: JSON.stringify({ do: "signup", email: tempEmail, password: tempPassword }),
+      ...(dispatcher ? { dispatcher } : {}),
+      signal: AbortSignal.timeout(20000)
     });
-    const j = await r.json().catch(() => null);
-    if (!r.ok || !j || !j.ok || !j.key) { console.log("[bestllm] signup failed"); return null; }
-    console.log(`[bestllm] auto-register ok, balance=${j.balance_usd}`);
-    return { upstreamApiKey: j.key, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: true, balance: j.balance_usd };
+    return r.json().catch(() => null);
+  };
+  try {
+    // Coba via proxy dulu (3x).
+    const proxies = await fetchProxyList().catch(() => []);
+    for (let i = 0; i < Math.min(3, proxies.length); i++) {
+      try {
+        const disp = proxyDispatcher(proxies[Math.floor(Math.random() * proxies.length)]);
+        const j = await doSignup(disp);
+        if (j && j.ok && j.key) {
+          console.log(`[bestllm] auto-register ok via proxy, balance=${j.balance_usd}`);
+          return { upstreamApiKey: j.key, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: true, balance: j.balance_usd };
+        }
+      } catch {}
+    }
+    // Fallback direct.
+    const j = await doSignup(null);
+    if (j && j.ok && j.key) {
+      console.log(`[bestllm] auto-register ok direct, balance=${j.balance_usd}`);
+      return { upstreamApiKey: j.key, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: true, balance: j.balance_usd };
+    }
+    console.log("[bestllm] signup failed");
+    return null;
   } catch (e) { console.log("[bestllm] exception", e && e.message); return null; }
 }
 
