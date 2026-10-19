@@ -237,7 +237,9 @@ async function doUserHarvest() {
     let html = `<div class="term-line">Total Proxy OK: ${out.proxyTotal != null ? out.proxyTotal : 0}</div>`;
     (out.keys || []).forEach((k, i) => {
       const st = k.live ? `<span class="term-live">Live</span>` : `<span class="term-dead">Mati</span>`;
-      if (k.live) html += `<div class="term-line term-key"><div>${i + 1} -${st}-</div><div>Api key : <span class="term-keyval">${esc(k.key || "")}</span></div><div>Token/Credit : ${k.credit != null ? esc(k.credit) : "Tidak dinyatakan"}</div></div>`;
+      // Gratis: credit dalam cents, tampilkan sebagai $X.XX (perintah Hestia 2026-10-19).
+      const creditTxt = k.credit != null ? (k.tierSlug === "gratis" ? "$" + (k.credit/100).toFixed(2) : esc(k.credit)) : "Tidak dinyatakan";
+      if (k.live) html += `<div class="term-line term-key"><div>${i + 1} -${st}-</div><div>Api key : <span class="term-keyval">${esc(k.key || "")}</span></div><div>Token/Credit : ${creditTxt}</div></div>`;
       else html += `<div class="term-line term-key"><div>${i + 1} -${st}-</div><div>Tidak dapat Di pakai</div></div>`;
     });
     proc.innerHTML = html;
