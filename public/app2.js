@@ -183,6 +183,20 @@ function showTierLocked() {
   m.style.display = "flex";
   const pop = $("#harvestProviderSidebar"); if (pop) pop.style.display = "none";
 }
+function showComingSoon() {
+  let m = $("#tierLockModal");
+  if (!m) {
+    m = document.createElement("div"); m.id = "tierLockModal"; m.className = "tier-lock-modal";
+    m.innerHTML = `<div class="tier-lock-box"><p>Segera Hadir!</p><button class="btn btn-plum" onclick="closeTierLocked()">OK</button></div>`;
+    m.addEventListener("click", (e) => { if (e.target === m) closeTierLocked(); });
+    document.body.appendChild(m);
+  } else {
+    m.querySelector("p").textContent = "Segera Hadir!";
+  }
+  m.style.display = "flex";
+  const pop = $("#harvestProviderSidebar"); if (pop) pop.style.display = "none";
+}
+
 function closeTierLocked() { const m = $("#tierLockModal"); if (m) m.style.display = "none"; }
 function renderHarvestSidebar() {
   const el = $("#harvestProviderSidebar"); if (!el) return;
@@ -193,7 +207,7 @@ function renderHarvestSidebar() {
   const myRank = TIER_RANK[(ME && ME.tier_slug) || "gratis"] ?? 0;
   const selItem = items.find((x) => x.p.id === selectedHarvestProviderId);
   if (!selectedHarvestProviderId || !selItem || (TIER_RANK[selItem.tier.slug] ?? 0) > myRank || selItem.tier.slug === "pro") selectedHarvestProviderId = (items.find((x) => (TIER_RANK[x.tier.slug] ?? 0) <= myRank && x.tier.slug !== "pro") || items.find((x) => x.tier.slug !== "pro") || items[0]).p.id;
-  el.innerHTML = items.map((x) => { const locked = (TIER_RANK[x.tier.slug] ?? 0) > myRank || x.tier.slug === "pro"; return `<div class="tier-side-opt${x.p.id === selectedHarvestProviderId ? " sel" : ""}${locked ? " locked" : ""}" data-pid="${x.p.id}" onclick="${locked ? "showTierLocked()" : `selectHarvestProvider(${x.p.id})`}">${locked ? "🔒 " : ""}${esc(short[x.tier.slug] || x.tier.name)} • ${x.p.modelCount} Model</div>`; }).join("");
+  el.innerHTML = items.map((x) => { const locked = (TIER_RANK[x.tier.slug] ?? 0) > myRank || x.tier.slug === "pro"; const comingSoon = x.tier.slug === "plus" || x.tier.slug === "premium"; const isLocked = locked || comingSoon; const clickFn = x.tier.slug === "pro" ? "showTierLocked()" : (comingSoon ? "showComingSoon()" : `selectHarvestProvider(${x.p.id})`); return `<div class="tier-side-opt${x.p.id === selectedHarvestProviderId ? " sel" : ""}${isLocked ? " locked" : ""}" data-pid="${x.p.id}" onclick="${clickFn}">${isLocked ? "🔒 " : ""}${esc(short[x.tier.slug] || x.tier.name)} • ${x.p.modelCount} Model</div>`; }).join("");
   const cur = items.find((x) => x.p.id === selectedHarvestProviderId);
   const lbl = $("#tierPickerLabel"); if (lbl && cur) lbl.textContent = `${short[cur.tier.slug] || cur.tier.name} • ${cur.p.modelCount} Model`;
 }
