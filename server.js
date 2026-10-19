@@ -81,15 +81,15 @@ function seed() {
   // 6 model (5 ZeroLimitAI :free + 1 bestllmapi.com "uncensored"). 100 calls/hari, 7 hari per akun. Auto-register full otomatis (no verifikasi email).
   db.prepare("UPDATE providers SET brand_name=?, tagline=?, model_count=?, model_list_json=?, model_notes_json=?, credit_note=?, default_credit=?, upstream_url=? WHERE brand_name IN ('Luna','Zerolimit')").run(
     "Luna",
-    "1 model gratis! (5 ZeroLimitAI sementara mati di provider).",
-    1,
-    JSON.stringify(["uncensored"]),
+    "6 model gratis! 5 ZeroLimitAI + 1 BestLLM.",
+    6,
+    JSON.stringify(["google/gemma-4-31b-it:free","google/gemma-4-26b-a4b-it:free","dots-studio/dots-3-note-preview:free","cohere/north-mini-code:free","xingchen-agi/xing4.0-29b-a4b:free","uncensored"]),
     JSON.stringify({}),
-    "$0.50 per akun, 7 hari.",
+    "100 calls/hari, 7 hari per akun.",
     null,
-    "https://api.bestllmapi.com/v1"
+    "https://www.zerolimitai.com/api/v1"
   );
-  db.prepare("UPDATE tiers SET max_models=? WHERE slug=?").run(1, "gratis");
+  db.prepare("UPDATE tiers SET max_models=? WHERE slug=?").run(6, "gratis");
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("TIER GRATIS", "gratis");
   // Migrasi 2026-10-18: Stella GANTI provider jadi Near Research (brand tetap "Stella", buang Free.ai yang cuma 2 model gratis).
   // 471 model, $0.25 per akun, tanpa verifikasi email, auto-register full otomatis.
@@ -578,7 +578,7 @@ async function tryAutoRegisterZerolimit(provider) {
     const form = new URLSearchParams({ csrfToken: csrf, email: tempEmail, password: tempPassword, json: "true" });
     const lg = await fetch(siteBase + "/api/auth/callback/credentials", {
       method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "HestiaFlow/1.0", "Cookie": cookieHdr() },
-      body: form.toString(), redirect: "manual"
+      body: form.toString()
     });
     saveCookies(lg);
     await lg.text().catch(() => "");
