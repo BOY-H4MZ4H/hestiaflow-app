@@ -86,7 +86,7 @@ function seed() {
     JSON.stringify(["google/gemma-4-31b-it:free","google/gemma-4-26b-a4b-it:free","dots-studio/dots-3-note-preview:free","cohere/north-mini-code:free","xingchen-agi/xing4.0-29b-a4b:free","uncensored"]),
     JSON.stringify({}),
     "100 calls/hari, 7 hari per akun.",
-    null,
+    100,
     "https://www.zerolimitai.com/api/v1",
     "Luna"
   );
