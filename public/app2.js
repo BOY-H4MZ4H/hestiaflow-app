@@ -240,7 +240,7 @@ async function updateModelBox() {
   try {
     const r = await api("/api/public/providers/" + pid + "/models");
     const models = r.models || [];
-    box.innerHTML = `<div class="term-line">Jumlah model: ${r.modelCount != null ? r.modelCount : models.length}</div>` + (models.length ? models.map((m) => `<div class="term-line">${esc(m)}</div>`).join("") : `<div class="term-line">Model belum terdeteksi otomatis.</div>`);
+    box.innerHTML = `<div class="term-line">Jumlah model: ${r.modelCount != null ? r.modelCount : models.length}</div><div style="height:2px;background:linear-gradient(90deg,#c9a227,#d4af37);margin:6px 0;border-radius:2px;"></div>` + (models.length ? models.map((m) => `<div class="term-line">${esc(m)}</div>`).join("") : `<div class="term-line">Model belum terdeteksi otomatis.</div>`);
   } catch { box.innerHTML = `<div class="term-line">Gagal memuat model.</div>`; }
 }
 async function doUserHarvest() {
