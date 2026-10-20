@@ -29,6 +29,7 @@ async function load() {
   const fb = $("#footBase"); if (fb) fb.textContent = SETTINGS.baseUrl || "https://api.hestia-gateway.id/v1";
   renderAuth();
   render();
+  loadBansos();
   document.body.classList.add("loaded");
 }
 function renderAuth() {
@@ -72,7 +73,7 @@ function render() {
     const urlParams = new URLSearchParams(location.search);
     const oauthNote = urlParams.get("oauth") === "missing"
       ? `<div class="notice"><strong>Login Google belum dikonfigurasi.</strong> Operator perlu mengatur GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET untuk domain ini.</div>` : "";
-    app.innerHTML = hero + oauthNote + tierShowcase();
+    app.innerHTML = hero + oauthNote + tierShowcase() + bansosSection();
     return;
   }
   if (ME.is_admin && adminTab === "admin") {
@@ -80,8 +81,76 @@ function render() {
     loadAdmin();
     return;
   }
-  app.innerHTML = hero + `<div id="userRoot"><p class="muted">Memuat Halaman Pengguna…</p></div>` + tierShowcase() + voucherSection();
+  app.innerHTML = hero + `<div id="userRoot"><p class="muted">Memuat Halaman Pengguna…</p></div>` + tierShowcase() + bansosSection() + voucherSection();
   loadUser();
+}
+
+let BANSOS = { keys: [], limit: 2, locked: false, pool: null };
+let bansosTimer = null;
+function fmtID(n) { return Number(n || 0).toLocaleString("id-ID"); }
+function bansosSection() {
+  return `<div class="section" id="bansosSection"><div class="card tier bansos-card">
+    <div class="tier-head"><span class="badge bansos">\uD83C\uDF81 BANSOS</span><div class="tier-price"><div class="price">GRATIS</div><div class="price-dur">Untuk Semua Pengguna</div></div></div>
+    <div class="brand"><div class="medal gold">B</div>
+    <div><h3>Bansos Token 5 Juta</h3><p>Token AI gratis untuk semua pengguna, tanpa login. Buat API key kamu sendiri (maksimal 2 key) dan pakai di Base URL HestiaFlow. Kuota 5 juta token per hari dipakai bersama \u2014 habis hari ini, besok ngisi lagi.</p></div></div>
+    <div><span class="chip">4 model pilihan</span><span class="chip">Tanpa login</span><span class="chip">Maks 2 API key</span></div>
+    <div class="bansos-pool">
+      <div class="bansos-pool-top"><span>Sisa token bansos hari ini</span><span class="bansos-pool-num" id="bansosRemain">Memuat\u2026</span></div>
+      <div class="bansos-bar"><div class="bansos-bar-fill" id="bansosBarFill"></div></div>
+      <div class="bansos-pool-sub" id="bansosPoolSub">dari total 5.000.000 token per hari</div>
+    </div>
+    <div id="bansosKeys"></div>
+    <div class="bansos-actions"><button class="btn btn-gold" id="bansosCreateBtn" onclick="createBansosKey()">Buat API Key</button></div>
+    <p class="muted" id="bansosMsg"></p>
+  </div></div>`;
+}
+function renderBansos() {
+  const rem = $("#bansosRemain"), fill = $("#bansosBarFill"), sub = $("#bansosPoolSub");
+  if (BANSOS.pool && rem && fill && sub) {
+    const total = BANSOS.pool.total || 5000000, sisa = BANSOS.pool.remaining || 0;
+    const baru = fmtID(sisa);
+    if (rem.textContent !== baru) { rem.textContent = baru; rem.classList.remove("tick"); void rem.offsetWidth; rem.classList.add("tick"); }
+    fill.style.width = (total > 0 ? Math.max(0, Math.min(100, (sisa / total) * 100)) : 0) + "%";
+    sub.textContent = "Terpakai " + fmtID(BANSOS.pool.used || 0) + " dari " + fmtID(total) + " token hari ini";
+  }
+  const box = $("#bansosKeys");
+  if (box) {
+    if (BANSOS.keys.length) {
+      box.innerHTML = `<div class="keybox bansos-keys"><div class="lbl">API key kamu (${BANSOS.keys.length}/${BANSOS.limit})</div>` +
+        BANSOS.keys.map((k) => `<span class="key-row"><span class="key-row-val">${esc(k.key)}</span> <button class="btn btn-ghost btn-sm" style="color:#d4af37;border-color:#d4af37" onclick="copyText('${esc(k.key)}', this)">Copy</button></span>`).join("") +
+        `<div class="lbl" style="margin-top:8px;text-transform:none;letter-spacing:0">Base URL: ${esc(SETTINGS.baseUrl || "")}</div></div>`;
+    } else box.innerHTML = "";
+  }
+  const btn = $("#bansosCreateBtn");
+  if (btn) {
+    if (BANSOS.locked) { btn.disabled = true; btn.textContent = "\uD83D\uDD12 Sudah 2 API Key"; }
+    else { btn.disabled = false; btn.textContent = "Buat API Key"; }
+  }
+}
+async function loadBansos() {
+  if (!$("#bansosSection")) return;
+  try { const p = await api("/api/bansos/pool"); BANSOS.pool = p; } catch {}
+  try { const m = await api("/api/bansos/my-keys"); BANSOS.keys = m.keys || []; BANSOS.limit = m.limit || 2; BANSOS.locked = !!m.locked; } catch {}
+  renderBansos();
+  if (!bansosTimer) bansosTimer = setInterval(refreshBansosPool, 30000);
+}
+async function refreshBansosPool() {
+  if (!$("#bansosSection")) return;
+  try { const p = await api("/api/bansos/pool"); BANSOS.pool = p; renderBansos(); } catch {}
+}
+async function createBansosKey() {
+  const msg = $("#bansosMsg"), btn = $("#bansosCreateBtn");
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api("/api/bansos/keys", { method: "POST", body: "{}" });
+    if (msg) msg.textContent = "API key berhasil dibuat. Salin dan pakai ya.";
+    const m = await api("/api/bansos/my-keys"); BANSOS.keys = m.keys || []; BANSOS.limit = m.limit || 2; BANSOS.locked = !!m.locked;
+    renderBansos();
+  } catch (e) {
+    if (msg) msg.textContent = e.message;
+    try { const m = await api("/api/bansos/my-keys"); BANSOS.keys = m.keys || []; BANSOS.locked = !!m.locked; } catch {}
+    renderBansos();
+  }
 }
 
 function voucherSection() {
