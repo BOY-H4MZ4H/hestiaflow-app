@@ -91,7 +91,7 @@ function fmtID(n) { return Number(n || 0).toLocaleString("id-ID"); }
 function bansosSection() {
   return `<div class="section" id="bansosSection"><div class="card tier bansos-card">
     <div class="tier-head"><span class="badge bansos">\uD83C\uDF81 BANSOS</span><div class="tier-price"><div class="price">GRATIS</div><div class="price-dur">Untuk Semua Pengguna</div></div></div>
-    <div class="brand"><div class="medal gold">B</div>
+    <div class="brand"><img class="bansos-logo" src="/logos/bansos.jpg" alt="Bansos" />
     <div><h3>Bansos Token 5 Juta</h3><p>Token AI gratis untuk semua pengguna, tanpa login. Buat API key kamu sendiri (maksimal 2 key) dan pakai di Base URL HestiaFlow. Kuota 5 juta token per hari dipakai bersama \u2014 habis hari ini, besok ngisi lagi.</p></div></div>
     <div><span class="chip">4 model pilihan</span><span class="chip">Tanpa login</span><span class="chip">Maks 2 API key</span></div>
     <div class="bansos-pool">
