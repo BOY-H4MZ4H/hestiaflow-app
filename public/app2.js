@@ -29,6 +29,7 @@ async function load() {
   const fb = $("#footBase"); if (fb) fb.textContent = SETTINGS.baseUrl || "https://api.hestia-gateway.id/v1";
   renderAuth();
   render();
+  document.body.classList.add("loaded");
 }
 function renderAuth() {
   const a = $("#authArea");
