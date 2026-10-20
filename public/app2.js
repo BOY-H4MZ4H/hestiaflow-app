@@ -99,6 +99,7 @@ function bansosSection() {
       <div class="bansos-bar"><div class="bansos-bar-fill" id="bansosBarFill"></div></div>
       <div class="bansos-pool-sub" id="bansosPoolSub">dari total 5.000.000 token per hari</div>
     </div>
+    <div class="bansos-baseurl"><span>Base URL</span><b>${esc(SETTINGS.baseUrl || "")}</b></div>
     <div id="bansosKeys"></div>
     <div class="bansos-actions"><button class="btn btn-gold" id="bansosCreateBtn" onclick="createBansosKey()">Buat API Key</button></div>
     <p class="muted" id="bansosMsg"></p>
@@ -117,8 +118,7 @@ function renderBansos() {
   if (box) {
     if (BANSOS.keys.length) {
       box.innerHTML = `<div class="keybox bansos-keys"><div class="lbl">API key kamu (${BANSOS.keys.length}/${BANSOS.limit})</div>` +
-        BANSOS.keys.map((k) => `<span class="key-row"><span class="key-row-val">${esc(k.key)}</span> <button class="btn btn-ghost btn-sm" style="color:#d4af37;border-color:#d4af37" onclick="copyText('${esc(k.key)}', this)">Copy</button></span>`).join("") +
-        `<div class="lbl" style="margin-top:8px;text-transform:none;letter-spacing:0">Base URL: ${esc(SETTINGS.baseUrl || "")}</div></div>`;
+        BANSOS.keys.map((k) => `<span class="key-row"><span class="key-row-val">${esc(k.key)}</span> <button class="btn btn-ghost btn-sm" style="color:#d4af37;border-color:#d4af37" onclick="copyText('${esc(k.key)}', this)">Copy</button></span>`).join("") + "</div>";
     } else box.innerHTML = "";
   }
   const btn = $("#bansosCreateBtn");
