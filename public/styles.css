@@ -147,8 +147,8 @@ body:not(.loaded) footer{display:none}
 .bansos-actions{margin-top:12px}
 .bansos-keys{margin-top:12px}
 
-.bansos-baseurl{margin-top:12px;padding:10px 14px;border:1.5px solid var(--gold);border-radius:12px;background:linear-gradient(180deg,#fffdf4,#fff);display:flex;justify-content:space-between;align-items:center;gap:10px}
+.bansos-baseurl{margin-top:12px;padding:10px 14px;border:1.5px solid var(--gold);border-radius:12px;background:linear-gradient(180deg,#fffdf4,#fff);display:flex;justify-content:center;align-items:center;gap:10px}
 .bansos-baseurl span{font-size:12px;font-weight:800;letter-spacing:.6px;color:var(--plum);text-transform:uppercase;white-space:nowrap}
-.bansos-baseurl b{color:var(--gold);font-size:14px;word-break:break-all;text-align:right}
+.bansos-baseurl b{color:var(--gold);font-size:15px;word-break:break-all;text-align:center}
 
 .bansos-logo{width:46px;height:46px;border-radius:50%;object-fit:cover;border:2px solid var(--gold);flex-shrink:0;background:#fff}
