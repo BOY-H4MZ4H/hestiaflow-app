@@ -1478,6 +1478,85 @@ app.post("/v1/chat/completions", async (req, res) => {
   return res.end();
 });
 
+// ---------- gateway: generate gambar (khusus Stella / Premium) ----------
+// Model gambar upstream bekerja lewat chat completions; endpoint ini menerjemahkan
+// format OpenAI images <-> chat, lalu membalas {created, data:[{b64_json}]}.
+const IMAGE_MODEL_MAP = {
+  "gemini-2.5-flash-image": "google/gemini-2.5-flash-image",
+  "gemini-3-pro-image": "google/gemini-3-pro-image",
+  "gpt-5-image": "openai/gpt-5-image",
+  "gpt-5-image-mini": "openai/gpt-5-image-mini",
+  "google/gemini-2.5-flash-image": "google/gemini-2.5-flash-image",
+  "google/gemini-3-pro-image": "google/gemini-3-pro-image",
+  "openai/gpt-5-image": "openai/gpt-5-image",
+  "openai/gpt-5-image-mini": "openai/gpt-5-image-mini",
+};
+app.post("/v1/images/generations", async (req, res) => {
+  const key = gatewayAuth(req);
+  if (!key) return res.status(401).json({ error: { message: "Incorrect API key provided.", type: "invalid_request_error", param: null, code: "invalid_api_key" } });
+  if (key._pro_locked) return res.status(401).json({ error: { message: "Tier Pro sedang dalam perbaikan. Coba lagi nanti.", type: "invalid_request_error", param: null, code: "pro_locked" } });
+  if (key._expired) return res.status(401).json({ error: { message: "API key sudah kadaluarsa. Panen lagi atau upgrade paket!", type: "invalid_request_error", param: null, code: "key_expired" } });
+  // Catatan: kunci "Segera Hadir" (chat) tidak berlaku di sini — fitur gambar memang khusus Stella.
+  const provider = key.provider_id ? db.prepare("SELECT * FROM providers WHERE id=?").get(key.provider_id) : null;
+  if (!provider || provider.brand_name !== "Stella") return res.status(403).json({ error: { message: "Generate gambar hanya untuk pengguna Premium (Stella). Upgrade paket untuk memakai fitur ini.", type: "invalid_request_error", param: null, code: "image_premium_only" } });
+  const body = req.body || {};
+  const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+  if (!prompt) return res.status(400).json({ error: { message: "prompt is required.", type: "invalid_request_error", param: "prompt", code: "invalid_request" } });
+  const modelIn = body.model || "gemini-3-pro-image";
+  const realModel = IMAGE_MODEL_MAP[modelIn];
+  if (!realModel) return res.status(404).json({ error: { message: "Model gambar '" + modelIn + "' tidak tersedia. Pilihan: gemini-3-pro-image, gemini-2.5-flash-image, gpt-5-image, gpt-5-image-mini.", type: "invalid_request_error", param: "model", code: "model_not_found" } });
+  let n = parseInt(body.n, 10);
+  if (!Number.isFinite(n) || n < 1) n = 1;
+  if (n > 4) n = 4;
+  // Orientasi: model Pro nurut instruksi rasio di prompt (terverifikasi 768x1376 untuk potrait).
+  const sz = String(body.size || "").toLowerCase();
+  let orient = "";
+  if (sz.includes("1536x1024") || sz === "landscape" || sz === "16:9" || sz === "horizontal") orient = " Horizontal landscape orientation, wide 16:9 aspect ratio.";
+  else if (sz.includes("1024x1536") || sz === "portrait" || sz === "9:16" || sz === "vertical" || sz === "full portrait") orient = " Vertical portrait orientation, tall 9:16 aspect ratio, full body visible from head to toe.";
+  const fullPrompt = "Generate an image: " + prompt + orient;
+  // Kandidat upstream (sama seperti chat): akun panen terbaru -> provider -> worker aktif.
+  let candidates = [];
+  const ha = db.prepare("SELECT upstream_api_key, upstream_base_url FROM harvested_accounts WHERE api_key_id=? AND upstream_api_key IS NOT NULL ORDER BY id DESC LIMIT 1").get(key.id);
+  if (ha) candidates.push({ key: ha.upstream_api_key, url: ha.upstream_base_url || provider.upstream_url });
+  if (provider.upstream_url || provider.upstream_api_key) candidates.push({ key: provider.upstream_api_key, url: provider.upstream_url });
+  const wk = db.prepare("SELECT * FROM workers WHERE provider_id=? AND status='active' AND upstream_api_key IS NOT NULL ORDER BY id LIMIT 1").get(provider.id);
+  if (wk) candidates.push({ key: wk.upstream_api_key, url: provider.upstream_url });
+  candidates = candidates.filter((c) => c.key && c.url);
+  if (!candidates.length) return res.status(502).json({ error: { message: "Upstream provider not configured. Operator must configure the provider upstream (Base URL + API key) in Panel Admin.", type: "upstream_error", param: null, code: "upstream_not_configured" } });
+  const data = [];
+  let lastErr = null;
+  for (const cand of candidates) {
+    if (data.length >= n) break;
+    try {
+      while (data.length < n) {
+        const ctl = new AbortController();
+        const tmo = setTimeout(() => ctl.abort(), 180000);
+        let r, j;
+        try {
+          r = await fetch(stripV1(cand.url) + "/v1/chat/completions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: "Bearer " + cand.key, "User-Agent": "HestiaFlow/1.0" },
+            body: JSON.stringify({ model: realModel, messages: [{ role: "user", content: fullPrompt }] }),
+            signal: ctl.signal,
+          });
+          j = await r.json().catch(() => null);
+        } finally { clearTimeout(tmo); }
+        if (r.status === 401 || r.status === 402 || r.status === 403 || r.status === 429) { lastErr = "Upstream " + r.status; break; }
+        const imgs = j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.images;
+        if (!imgs || !imgs.length) { lastErr = "Upstream tidak mengembalikan gambar."; break; }
+        for (const im of imgs) {
+          const u = (im && im.image_url && im.image_url.url) || "";
+          const b64 = u.includes(",") ? u.split(",").pop() : u;
+          if (b64) data.push({ b64_json: b64 });
+          if (data.length >= n) break;
+        }
+      }
+    } catch (e) { lastErr = e && e.message; }
+  }
+  if (!data.length) return res.status(502).json({ error: { message: "Generate gambar gagal. Coba lagi nanti. (" + (lastErr || "upstream") + ")", type: "upstream_error", param: null, code: "image_generation_failed" } });
+  return res.json({ created: Math.floor(Date.now() / 1000), data });
+});
+
 // SPA fallback
 app.get("*", (req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
 
