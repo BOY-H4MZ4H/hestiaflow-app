@@ -99,7 +99,7 @@ function bansosSection() {
       <div class="bansos-bar"><div class="bansos-bar-fill" id="bansosBarFill"></div></div>
       <div class="bansos-pool-sub" id="bansosPoolSub">dari total 5.000.000 token per hari</div>
     </div>
-    <div class="bansos-baseurl"><span>Base URL</span><b>${esc(SETTINGS.baseUrl || "")}</b></div>
+    <div class="bansos-baseurl"><b>${esc(SETTINGS.baseUrl || "")}</b></div>
     <div id="bansosKeys"></div>
     <div class="bansos-actions"><button class="btn btn-gold" id="bansosCreateBtn" onclick="createBansosKey()">Buat API Key</button></div>
     <p class="muted" id="bansosMsg"></p>
