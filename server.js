@@ -164,6 +164,12 @@ try {
   if (bp && poolKeys.length) {
     const insW = db.prepare("INSERT INTO workers (provider_id,name,credit,upstream_api_key) SELECT ?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM workers WHERE provider_id=? AND upstream_api_key=?)");
     poolKeys.forEach((k, i) => insW.run(bp.id, "Bansos " + (i + 1), 500000, k, bp.id, k));
+    // Sync status dengan env: key yang sudah dicabut dari env (mis. mati di sumber) dinonaktifkan, sebaliknya diaktifkan lagi.
+    const envSet = new Set(poolKeys);
+    for (const w of db.prepare("SELECT id, upstream_api_key, status FROM workers WHERE provider_id=?").all(bp.id)) {
+      if (envSet.has(w.upstream_api_key) && w.status !== "active") db.prepare("UPDATE workers SET status='active' WHERE id=?").run(w.id);
+      if (!envSet.has(w.upstream_api_key) && w.status === "active") db.prepare("UPDATE workers SET status='inactive' WHERE id=?").run(w.id);
+    }
   }
 } catch {}
 // Sync provider upstream URLs from env vars (PROVIDER_<BRAND>_UPSTREAM_URL).
@@ -1427,8 +1433,8 @@ app.post("/v1/chat/completions", async (req, res) => {
         body: JSON.stringify(fwdBody),
         signal: ctl.signal,
       });
-      // Jika rate limit / 402 / 403, coba kandidat berikutnya (failover).
-      if ((r.status === 429 || r.status === 402 || r.status === 403) && upstreamCandidates.length > 1) {
+      // Jika rate limit / 402 / 403 / 401 (key upstream mati), coba kandidat berikutnya (failover).
+      if ((r.status === 429 || r.status === 402 || r.status === 403 || r.status === 401) && upstreamCandidates.length > 1) {
         clearTimeout(t);
         lastError = `Upstream ${r.status}, coba berikutnya`;
         continue;
@@ -1456,7 +1462,7 @@ app.post("/v1/chat/completions", async (req, res) => {
       clearTimeout(t);
       const data = await r.json().catch(() => ({}));
       // Jika error rate limit, coba berikutnya
-      if (data && data.error && /rate[_ ]limit|insufficient|quota/i.test(JSON.stringify(data.error)) && upstreamCandidates.length > 1) {
+      if (data && data.error && /rate[_ ]limit|insufficient|quota|revoked|authentication/i.test(JSON.stringify(data.error)) && upstreamCandidates.length > 1) {
         lastError = JSON.stringify(data.error).slice(0, 100);
         continue;
       }
