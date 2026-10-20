@@ -195,6 +195,18 @@ async function loadUser() {
     "stream": false
   }'</pre></div>
       <div style="margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="copyCurlExample(this)">Salin</button></div>
+    </div>
+    <div class="section"><h2>Curl Gambar</h2>
+      <p class="muted" style="margin:0 0 8px">Khusus pengguna Premium (Stella). Dukung potrait: pakai "size": "1024x1536" dan model gemini-3-pro-image.</p>
+      <div class="termbox" style="overflow:auto"><pre id="curlImageExample" style="margin:0;white-space:pre;font-size:13px">curl https://hestiaflow.lovie.me/v1/images/generations \
+  -H "Authorization: Bearer API_KEY_KAMU" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-3-pro-image",
+    "prompt": "wanita anggun bergaun merah di taman bunga",
+    "size": "1024x1536"
+  }'</pre></div>
+      <div style="margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="copyImageCurlExample(this)">Salin</button></div>
     </div>`;
   renderHarvestSidebar();
   updateModelBox();
@@ -205,6 +217,10 @@ function keyBoxAll(keys) {
 }
 function copyCurlExample(btn) {
   const el = document.getElementById("curlExample");
+  if (el) copyText(el.textContent, btn);
+}
+function copyImageCurlExample(btn) {
+  const el = document.getElementById("curlImageExample");
   if (el) copyText(el.textContent, btn);
 }
 let lastHarvestKeys = [];
