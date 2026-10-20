@@ -1222,6 +1222,27 @@ app.get("/v1/models", (req, res) => {
   const now = Math.floor(Date.now() / 1000);
   res.json({ object: "list", data: models.map((id) => ({ id, object: "model", created: now, owned_by: "hestiaflow" })) });
 });
+app.get("/v1/credit", (req, res) => {
+  const key = gatewayAuth(req);
+  if (!key) return res.status(401).json({ error: { message: "Incorrect API key provided. You can find your HestiaFlow API key at Halaman Pengguna.", type: "invalid_request_error", param: null, code: "invalid_api_key" } });
+  if (key._pro_locked) return res.status(401).json({ error: { message: "Tier Pro sedang dalam perbaikan. Coba lagi nanti.", type: "invalid_request_error", param: null, code: "pro_locked" } });
+  if (key._coming_soon) return res.status(401).json({ error: { message: "Segera Hadir!", type: "invalid_request_error", param: null, code: "coming_soon" } });
+  if (key._expired) return res.status(401).json({ error: { message: "API key sudah kadaluarsa (Gratis: 2 hari). Panen lagi atau upgrade paket!", type: "invalid_request_error", param: null, code: "key_expired" } });
+  const provider = key.provider_id ? db.prepare("SELECT brand_name, credit_note FROM providers WHERE id=?").get(key.provider_id) : null;
+  const tier = key.tier_id ? db.prepare("SELECT slug FROM tiers WHERE id=?").get(key.tier_id) : null;
+  const acc = db.prepare("SELECT COUNT(*) AS total, SUM(CASE WHEN upstream_api_key IS NOT NULL THEN 1 ELSE 0 END) AS live FROM harvested_accounts WHERE api_key_id=?").get(key.id) || { total: 0, live: 0 };
+  res.json({
+    object: "credit",
+    brand: provider ? provider.brand_name : null,
+    tier: tier ? tier.slug : null,
+    credit: key.credit != null ? key.credit : null,
+    credit_note: provider ? (provider.credit_note || null) : null,
+    accounts: acc.total || 0,
+    live_accounts: acc.live || 0,
+    created_at: key.created_at || null,
+    expires_at: key.expires_at || null,
+  });
+});
 app.post("/v1/chat/completions", async (req, res) => {
   const key = gatewayAuth(req);
   if (!key) return res.status(401).json({ error: { message: "Incorrect API key provided.", type: "invalid_request_error", param: null, code: "invalid_api_key" } });
