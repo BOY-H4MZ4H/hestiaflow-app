@@ -36,8 +36,7 @@ function renderAuth() {
   if (!ME) {
     a.innerHTML = `<button class="btn btn-plum" onclick="location.href='/auth/google'">Masuk</button>`;
   } else {
-    a.innerHTML = `<span class="muted" style="margin-right:8px">${esc(ME.name || ME.email)}</span>
-      ${ME.is_admin ? `<button class="btn btn-ghost btn-sm" onclick="switchTab('admin')">Panel Admin</button> <button class="btn btn-ghost btn-sm" onclick="switchTab('user')">Halaman Pengguna</button>` : ""}
+    a.innerHTML = `${ME.is_admin ? `<button class="btn btn-ghost btn-sm" onclick="switchTab('admin')">Panel Admin</button> <button class="btn btn-ghost btn-sm" onclick="switchTab('user')">Halaman Pengguna</button>` : ""}
       <button class="btn btn-ghost btn-sm" onclick="logout()">Keluar</button>`;
   }
 }
