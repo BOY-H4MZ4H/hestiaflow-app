@@ -1317,6 +1317,23 @@ app.get("/v1/credit", (req, res) => {
   if (key._expired) return res.status(401).json({ error: { message: "API key sudah kadaluarsa (Gratis: 2 hari). Panen lagi atau upgrade paket!", type: "invalid_request_error", param: null, code: "key_expired" } });
   const provider = key.provider_id ? db.prepare("SELECT brand_name, credit_note FROM providers WHERE id=?").get(key.provider_id) : null;
   const tier = key.tier_id ? db.prepare("SELECT slug FROM tiers WHERE id=?").get(key.tier_id) : null;
+  // BANSOS: credit = sisa pool bersama hari ini (angka asli dari pemakaian gateway).
+  if (key.anon_id) {
+    const pool = bansosPool();
+    return res.json({
+      object: "credit",
+      brand: provider ? provider.brand_name : "Bansos",
+      tier: null,
+      credit: pool.remaining,
+      credit_note: provider ? (provider.credit_note || null) : null,
+      total_tokens: pool.total,
+      used_tokens: pool.used,
+      accounts: pool.accounts,
+      live_accounts: pool.accounts,
+      created_at: key.created_at || null,
+      expires_at: null,
+    });
+  }
   const acc = db.prepare("SELECT COUNT(*) AS total, SUM(CASE WHEN upstream_api_key IS NOT NULL THEN 1 ELSE 0 END) AS live FROM harvested_accounts WHERE api_key_id=?").get(key.id) || { total: 0, live: 0 };
   res.json({
     object: "credit",
