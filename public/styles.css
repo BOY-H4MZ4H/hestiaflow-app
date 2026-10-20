@@ -132,3 +132,17 @@ footer img{width:30px;height:30px;border-radius:50%;object-fit:cover;border:1.5p
 .load-logo{width:84px;height:84px;border-radius:50%;object-fit:cover;border:2px solid var(--gold);background:#fff;animation:loadPulse 1.2s ease-in-out infinite}
 @keyframes loadPulse{0%,100%{transform:scale(1);opacity:.7}50%{transform:scale(1.12);opacity:1}}
 body:not(.loaded) footer{display:none}
+
+/* Bansos Token card */
+.badge.bansos{background:linear-gradient(135deg,var(--gold),var(--gold2));color:#2a1a00}
+.card.bansos-card{border-top:5px solid var(--gold);background:linear-gradient(180deg,#fffdf4,#fff)}
+.bansos-pool{margin:14px 0 4px;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--ivory)}
+.bansos-pool-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-weight:700;color:var(--plum);font-size:13.5px}
+.bansos-pool-num{font-size:20px;font-weight:800;color:var(--plum);white-space:nowrap}
+.bansos-pool-num.tick{animation:bansosPulse .8s ease}
+@keyframes bansosPulse{0%{color:var(--gold)}100%{color:var(--plum)}}
+.bansos-bar{height:12px;background:var(--ivory2);border:1px solid var(--line);border-radius:999px;overflow:hidden;margin:8px 0 6px}
+.bansos-bar-fill{height:100%;width:100%;background:linear-gradient(90deg,var(--plum),var(--gold));border-radius:999px;transition:width 1.2s ease}
+.bansos-pool-sub{font-size:12px;color:var(--muted)}
+.bansos-actions{margin-top:12px}
+.bansos-keys{margin-top:12px}
