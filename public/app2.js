@@ -102,9 +102,9 @@ async function loadUser() {
     <div class="section"><h2>Panen Akun</h2><p class="sub">Panen akun provider — tiap panen membuat 1 akun baru dengan email sementara yang berbeda-beda. Email & sandi tidak pernah ditampilkan. Limit: Gratis 100, Plus 500, Pro 1500, Prem 5000 akun.</p>
       <div class="card">
         <div style="text-align:center"><label>Provider</label><div class="tier-picker"><button class="btn btn-plum tier-picker-btn" id="tierPickerBtn" onclick="toggleTierPicker()">Tier: <span id="tierPickerLabel">Gratis • 2 Model</span> ▾</button><div id="harvestProviderSidebar" class="tier-sidebar tier-picker-pop" style="display:none"></div></div></div>
-        <div style="margin-top:14px;text-align:center"><label id="harvestCountLabel">Jumlah akun (1–2)</label><div class="stepper">
+        <div style="margin-top:14px;text-align:center"><label id="harvestCountLabel">Jumlah akun (1–100)</label><div class="stepper">
           <button type="button" onclick="stepCount(-1)">−</button>
-          <input id="harvestCount" type="number" min="1" max="2" value="1" oninput="clampUserCount(this)" />
+          <input id="harvestCount" type="number" min="1" max="100" value="1" oninput="clampUserCount(this)" />
           <button type="button" onclick="stepCount(1)">+</button></div></div>
       </div>
       <div style="margin-top:14px;text-align:center"><button class="btn btn-plum" id="harvestBtn" onclick="doUserHarvest()">Panen Akun</button></div>
@@ -214,6 +214,7 @@ function renderHarvestSidebar() {
   el.innerHTML = items.map((x) => { const locked = (TIER_RANK[x.tier.slug] ?? 0) > myRank || x.tier.slug === "pro"; const comingSoon = x.tier.slug === "plus" || x.tier.slug === "premium"; const isLocked = locked || comingSoon; const clickFn = x.tier.slug === "pro" ? "showTierLocked()" : (comingSoon ? "showComingSoon()" : `selectHarvestProvider(${x.p.id})`); return `<div class="tier-side-opt${x.p.id === selectedHarvestProviderId ? " sel" : ""}${isLocked ? " locked" : ""}" data-pid="${x.p.id}" onclick="${clickFn}">${isLocked ? "🔒 " : ""}${esc(short[x.tier.slug] || x.tier.name)} • ${x.p.modelCount} Model</div>`; }).join("");
   const cur = items.find((x) => x.p.id === selectedHarvestProviderId);
   const lbl = $("#tierPickerLabel"); if (lbl && cur) lbl.textContent = `${short[cur.tier.slug] || cur.tier.name} • ${cur.p.modelCount} Model`;
+  updateHarvestLimitUI();
 }
 function toggleTierPicker() {
   const pop = $("#harvestProviderSidebar"); if (!pop) return;
