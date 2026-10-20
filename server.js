@@ -68,9 +68,9 @@ function seed() {
   const BANSOS_MODELS = ["codestral-latest","qwen3.6-27b","gpt-oss-20b","mistral-large-latest"];
   const BANSOS_NOTES = {"codestral-latest":"Jago coding.","qwen3.6-27b":"Jago coding.","gpt-oss-20b":"Paling cepat.","mistral-large-latest":"Paling jago untuk semua."};
   db.prepare("INSERT INTO providers (tier_id,brand_name,tagline,model_count,model_list_json,model_notes_json,credit_note,default_credit,sort_order,upstream_url) SELECT NULL,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM providers WHERE brand_name='Bansos')").run(
-    "Bansos", "Token gratis untuk semua pengguna.", 4, JSON.stringify(BANSOS_MODELS), JSON.stringify(BANSOS_NOTES), "5 juta token per hari untuk semua pengguna.", null, 99, null
+    "Bansos", "Token gratis untuk semua pengguna.", 4, JSON.stringify(BANSOS_MODELS), JSON.stringify(BANSOS_NOTES), "4.5 juta token per hari untuk semua pengguna.", null, 99, null
   );
-  db.prepare("UPDATE providers SET model_count=?, model_list_json=?, model_notes_json=?, credit_note=? WHERE brand_name='Bansos'").run(4, JSON.stringify(BANSOS_MODELS), JSON.stringify(BANSOS_NOTES), "5 juta token per hari untuk semua pengguna.");
+  db.prepare("UPDATE providers SET model_count=?, model_list_json=?, model_notes_json=?, credit_note=? WHERE brand_name='Bansos'").run(4, JSON.stringify(BANSOS_MODELS), JSON.stringify(BANSOS_NOTES), "4.5 juta token per hari untuk semua pengguna.");
   // Migrasi 2026-10-18: users.gratis_started_at — awal masa 2 hari Gratis (total, bukan per-key).
   try {
     const ucols2 = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
