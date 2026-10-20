@@ -128,3 +128,6 @@ footer img{width:30px;height:30px;border-radius:50%;object-fit:cover;border:1.5p
   justify-content: center;
   box-shadow: 0 2px 8px rgba(0,0,0,0.15);
 }
+.load-wrap{display:flex;justify-content:center;align-items:center;min-height:180px}
+.load-logo{width:84px;height:84px;border-radius:50%;object-fit:cover;border:2px solid var(--gold);background:#fff;animation:loadPulse 1.2s ease-in-out infinite}
+@keyframes loadPulse{0%,100%{transform:scale(1);opacity:.7}50%{transform:scale(1.12);opacity:1}}
