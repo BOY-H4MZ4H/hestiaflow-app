@@ -56,6 +56,21 @@ function seed() {
     const kcols = db.prepare("PRAGMA table_info(api_keys)").all().map((c) => c.name);
     if (!kcols.includes("expires_at")) db.prepare("ALTER TABLE api_keys ADD COLUMN expires_at TEXT").run();
   } catch {}
+  // Migrasi 2026-10-20: BANSOS TOKEN — key tanpa login (api_keys.anon_id) + tabel pemakaian pool harian.
+  try {
+    const kcolsB = db.prepare("PRAGMA table_info(api_keys)").all().map((c) => c.name);
+    if (!kcolsB.includes("anon_id")) db.prepare("ALTER TABLE api_keys ADD COLUMN anon_id TEXT").run();
+  } catch {}
+  db.prepare("CREATE TABLE IF NOT EXISTS bansos_usage (day TEXT, worker_id INTEGER, tokens INTEGER DEFAULT 0, requests INTEGER DEFAULT 0, PRIMARY KEY(day, worker_id))").run();
+  // Provider Bansos (tanpa tier): 4 model pilihan. Key upstream (pool akun) disimpan di tabel workers,
+  // di-seed dari env BANSOS_UPSTREAM_KEYS. upstream_url server-side saja (tidak pernah tampil publik).
+  // Nama publik = nama asli model (tanpa prefix agregator). upstream_url via env PROVIDER_BANSOS_UPSTREAM_URL.
+  const BANSOS_MODELS = ["codestral-latest","qwen3.6-27b","gpt-oss-20b","mistral-large-latest"];
+  const BANSOS_NOTES = {"codestral-latest":"Jago coding.","qwen3.6-27b":"Jago coding.","gpt-oss-20b":"Paling cepat.","mistral-large-latest":"Paling jago untuk semua."};
+  db.prepare("INSERT INTO providers (tier_id,brand_name,tagline,model_count,model_list_json,model_notes_json,credit_note,default_credit,sort_order,upstream_url) SELECT NULL,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM providers WHERE brand_name='Bansos')").run(
+    "Bansos", "Token gratis untuk semua pengguna.", 4, JSON.stringify(BANSOS_MODELS), JSON.stringify(BANSOS_NOTES), "5 juta token per hari untuk semua pengguna.", null, 99, null
+  );
+  db.prepare("UPDATE providers SET model_count=?, model_list_json=?, model_notes_json=?, credit_note=? WHERE brand_name='Bansos'").run(4, JSON.stringify(BANSOS_MODELS), JSON.stringify(BANSOS_NOTES), "5 juta token per hari untuk semua pengguna.");
   // Migrasi 2026-10-18: users.gratis_started_at — awal masa 2 hari Gratis (total, bukan per-key).
   try {
     const ucols2 = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
@@ -139,6 +154,16 @@ function seed() {
   db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('base_url',?)").run(GATEWAY_BASE_URL);
 }
 seed();
+// Seed key pool Bansos dari env BANSOS_UPSTREAM_KEYS (dipisah koma/spasi/baris baru) -> workers provider Bansos.
+try {
+  const bp = db.prepare("SELECT id FROM providers WHERE brand_name='Bansos'").get();
+  const rawKeys = String(process.env.BANSOS_UPSTREAM_KEYS || "");
+  const poolKeys = rawKeys.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+  if (bp && poolKeys.length) {
+    const insW = db.prepare("INSERT INTO workers (provider_id,name,credit,upstream_api_key) SELECT ?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM workers WHERE provider_id=? AND upstream_api_key=?)");
+    poolKeys.forEach((k, i) => insW.run(bp.id, "Bansos " + (i + 1), 500000, k, bp.id, k));
+  }
+} catch {}
 // Sync provider upstream URLs from env vars (PROVIDER_<BRAND>_UPSTREAM_URL).
 // Operator config only — values live in Railway env, never in public code.
 for (const [k, v] of Object.entries(process.env)) {
@@ -966,6 +991,66 @@ app.get("/api/public/settings", (req, res) => {
   res.json({ ok: true, gatewayName: name, baseUrl: base });
 });
 
+// ---------- BANSOS TOKEN (tanpa login, maks 2 key per pengunjung) ----------
+const BANSOS_KEY_LIMIT = 2;
+// Peta nama publik -> id model upstream (server-side saja, tidak pernah dikirim ke klien).
+const BANSOS_MODEL_MAP = { "codestral-latest": "codestral/codestral-latest", "qwen3.6-27b": "groq/qwen/qwen3.6-27b", "gpt-oss-20b": "groq/openai/gpt-oss-20b", "mistral-large-latest": "mistral/mistral-large-latest" };
+const BANSOS_PER_ACCOUNT_DAILY = 500000;
+function bansosProvider() { return db.prepare("SELECT * FROM providers WHERE brand_name='Bansos'").get() || null; }
+function bansosDay() { return new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10); }
+function bansosPool() {
+  const p = bansosProvider();
+  if (!p) return { total: 0, used: 0, remaining: 0, accounts: 0 };
+  const ws = db.prepare("SELECT id FROM workers WHERE provider_id=? AND status='active' AND upstream_api_key IS NOT NULL").all(p.id);
+  const day = bansosDay();
+  let total = 0, used = 0;
+  for (const w of ws) {
+    total += BANSOS_PER_ACCOUNT_DAILY;
+    const u = db.prepare("SELECT tokens FROM bansos_usage WHERE day=? AND worker_id=?").get(day, w.id);
+    used += Math.min(u ? u.tokens : 0, BANSOS_PER_ACCOUNT_DAILY);
+  }
+  return { total, used, remaining: Math.max(0, total - used), accounts: ws.length };
+}
+function recordBansosUsage(workerId, tokens) {
+  try {
+    const t = Math.max(0, Math.floor(Number(tokens) || 0));
+    db.prepare("INSERT INTO bansos_usage (day,worker_id,tokens,requests) VALUES (?,?,?,1) ON CONFLICT(day,worker_id) DO UPDATE SET tokens=tokens+?, requests=requests+1").run(bansosDay(), workerId, t, t);
+  } catch {}
+}
+function getAnonId(req, res) {
+  const raw = String(req.headers.cookie || "");
+  const part = raw.split(";").map((s) => s.trim()).find((s) => s.indexOf("hf_anon=") === 0);
+  let id = part ? part.slice("hf_anon=".length) : "";
+  if (!/^[a-f0-9]{32}$/.test(id)) {
+    id = randHex(16);
+    res.setHeader("Set-Cookie", "hf_anon=" + id + "; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax");
+  }
+  return id;
+}
+app.get("/api/bansos/pool", (req, res) => {
+  const p = bansosPool();
+  res.json({ ok: true, total: p.total, used: p.used, remaining: p.remaining, accounts: p.accounts });
+});
+app.get("/api/bansos/my-keys", (req, res) => {
+  const anon = getAnonId(req, res);
+  const p = bansosProvider();
+  if (!p) return res.json({ ok: true, keys: [], limit: BANSOS_KEY_LIMIT, locked: false });
+  const rows = db.prepare("SELECT key_value, created_at FROM api_keys WHERE anon_id=? AND provider_id=? AND status='active' ORDER BY id ASC").all(anon, p.id);
+  res.json({ ok: true, keys: rows.map((r) => ({ key: r.key_value, createdAt: r.created_at })), limit: BANSOS_KEY_LIMIT, locked: rows.length >= BANSOS_KEY_LIMIT });
+});
+app.post("/api/bansos/keys", (req, res) => {
+  const anon = getAnonId(req, res);
+  const p = bansosProvider();
+  if (!p) return res.status(503).json({ ok: false, error: "Bansos belum tersedia." });
+  const cnt = db.prepare("SELECT COUNT(*) c FROM api_keys WHERE anon_id=? AND provider_id=? AND status='active'").get(anon, p.id).c;
+  if (cnt >= BANSOS_KEY_LIMIT) return res.status(403).json({ ok: false, error: "Kamu sudah buat 2 API key. Tombol buat key terkunci.", code: "bansos_key_limit" });
+  let models = [];
+  try { models = JSON.parse(p.model_list_json || "[]"); } catch {}
+  const keyValue = "hgw-" + randHex(16);
+  db.prepare("INSERT INTO api_keys (user_id,provider_id,tier_id,key_value,key_prefix,credit,models_json,model_source,model_count,anon_id) VALUES (NULL,?,NULL,?,?,NULL,?,'provider',?,?)").run(p.id, keyValue, keyValue.slice(0, 12), JSON.stringify(models), models.length, anon);
+  res.json({ ok: true, key: keyValue, limit: BANSOS_KEY_LIMIT, count: cnt + 1, locked: cnt + 1 >= BANSOS_KEY_LIMIT });
+});
+
 // ---------- user API ----------
 app.get("/api/my-keys", requireAuth, (req, res) => {
   const rows = db.prepare("SELECT k.*, p.brand_name AS brand, t.slug AS tier_slug FROM api_keys k LEFT JOIN providers p ON p.id=k.provider_id LEFT JOIN tiers t ON t.id=k.tier_id WHERE k.user_id=? AND k.status='active' ORDER BY k.created_at DESC").all(req.user.id);
@@ -1262,6 +1347,18 @@ app.post("/v1/chat/completions", async (req, res) => {
   const provider = key.provider_id ? db.prepare("SELECT * FROM providers WHERE id=?").get(key.provider_id) : null;
   let upstreamUrl = null, upstreamKey = null;
   let upstreamCandidates = [];
+  // BANSOS: key anonim memakai pool akun (workers) bergiliran, yang paling sedikit dipakai duluan.
+  const isBansosKey = !!(key.anon_id && provider);
+  if (isBansosKey) {
+    const poolNow = bansosPool();
+    if (poolNow.remaining <= 0) return res.status(429).json({ error: { message: "Token bansos hari ini habis. Besok ngisi lagi!", type: "rate_limit_error", param: null, code: "bansos_pool_empty" } });
+    const dayB = bansosDay();
+    const wsB = db.prepare("SELECT * FROM workers WHERE provider_id=? AND status='active' AND upstream_api_key IS NOT NULL").all(provider.id);
+    const sortedB = wsB.map((w) => { const u = db.prepare("SELECT tokens FROM bansos_usage WHERE day=? AND worker_id=?").get(dayB, w.id); return { w, used: u ? u.tokens : 0 }; })
+      .filter((x) => x.used < BANSOS_PER_ACCOUNT_DAILY)
+      .sort((a, b) => a.used - b.used);
+    for (const x of sortedB) upstreamCandidates.push({ key: x.w.upstream_api_key, url: provider.upstream_url, workerId: x.w.id });
+  }
   // Cek tier untuk failover Gratis
   let isGratisTier = false;
   try {
@@ -1289,6 +1386,13 @@ app.post("/v1/chat/completions", async (req, res) => {
     if (w) upstreamCandidates.push({ key: w.upstream_api_key, url: provider.upstream_url });
   }
   if (upstreamCandidates.length === 0) return res.status(502).json({ error: { message: "Upstream provider not configured. Operator must configure the provider upstream (Base URL + API key) in Panel Admin.", type: "upstream_error", param: null, code: "upstream_not_configured" } });
+  // Body yang diteruskan ke upstream (khusus bansos: terjemahkan nama model + minta usage saat stream).
+  let fwdBody = req.body;
+  if (isBansosKey) {
+    fwdBody = Object.assign({}, req.body);
+    if (BANSOS_MODEL_MAP[model]) fwdBody.model = BANSOS_MODEL_MAP[model];
+    if (stream) fwdBody.stream_options = { include_usage: true };
+  }
   // Failover: coba tiap upstream sampai berhasil (untuk Gratis gabungan).
   let lastError = null;
   for (const cand of upstreamCandidates) {
@@ -1301,7 +1405,7 @@ app.post("/v1/chat/completions", async (req, res) => {
       const r = await fetch(stripV1(upstreamUrl) + "/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${upstreamKey}`, "User-Agent": "HestiaFlow/1.0" },
-        body: JSON.stringify(req.body),
+        body: JSON.stringify(fwdBody),
         signal: ctl.signal,
       });
       // Jika rate limit / 402 / 403, coba kandidat berikutnya (failover).
@@ -1314,13 +1418,20 @@ app.post("/v1/chat/completions", async (req, res) => {
         // SSE passthrough: stream provider chunks straight to the client.
         res.writeHead(r.status, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
         const reader = r.body.getReader();
+        let tailB = "";
         try {
           for (;;) {
             const { done, value } = await reader.read();
             if (done) break;
-            res.write(Buffer.from(value));
+            const chunkB = Buffer.from(value);
+            if (isBansosKey && cand.workerId) tailB = (tailB + chunkB.toString("utf8")).slice(-8000);
+            res.write(chunkB);
           }
         } finally { clearTimeout(t); }
+        if (isBansosKey && cand.workerId && tailB) {
+          const mB = [...tailB.matchAll(/"total_tokens"\s*:\s*(\d+)/g)];
+          if (mB.length) recordBansosUsage(cand.workerId, Number(mB[mB.length - 1][1]));
+        }
         return res.end();
       }
       clearTimeout(t);
@@ -1330,6 +1441,7 @@ app.post("/v1/chat/completions", async (req, res) => {
         lastError = JSON.stringify(data.error).slice(0, 100);
         continue;
       }
+      if (isBansosKey && cand.workerId && r.status >= 200 && r.status < 300 && data && data.usage && data.usage.total_tokens) recordBansosUsage(cand.workerId, data.usage.total_tokens);
       return res.status(r.status).json(data);
     } catch (e) {
       lastError = e && e.message;
