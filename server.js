@@ -1607,4 +1607,35 @@ app.post("/v1/images/generations", async (req, res) => {
 // SPA fallback
 app.get("*", (req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
 
+// ---------- Auto-hapus key kedaluwarsa (2026-10-21, perintah Hestia) ----------
+// Prosedur sama persis kayak hapus manual di web (DELETE /api/my-keys/:id):
+// harvested_accounts milik key itu dibersihkan dulu, baru baris api_keys-nya.
+// Yang dihapus HANYA key yang expires_at-nya sudah lewat. Key tanpa expires_at
+// (NULL = tanpa masa aktif) dan key yang masih aktif TIDAK disentuh.
+// Akun panenan yatim (key induknya sudah tidak ada) ikut dibersihkan.
+// Jalan sekali pas server nyala + tiap 6 jam, biar database tidak membengkak.
+function cleanupExpiredKeys() {
+  try {
+    const nowIso = new Date().toISOString();
+    const expired = db.prepare("SELECT id FROM api_keys WHERE expires_at IS NOT NULL AND expires_at < ?").all(nowIso);
+    const delH = db.prepare("DELETE FROM harvested_accounts WHERE api_key_id=?");
+    const delK = db.prepare("DELETE FROM api_keys WHERE id=?");
+    let nKey = 0, nAcc = 0;
+    for (const k of expired) {
+      nAcc += delH.run(k.id).changes;
+      nKey += delK.run(k.id).changes;
+    }
+    const orphan = db.prepare("DELETE FROM harvested_accounts WHERE api_key_id NOT IN (SELECT id FROM api_keys)").run();
+    if (nKey || orphan.changes) {
+      console.log(`[cleanup] auto-hapus: ${nKey} key kedaluwarsa, ${nAcc} akun panenannya, ${orphan.changes} akun yatim`);
+      // VACUUM: ruang baris yang dihapus tidak balik sendiri di SQLite — wajib buat volume Railway yang kecil.
+      try { db.exec("VACUUM"); console.log("[cleanup] VACUUM selesai, ruang penyimpanan diklaim kembali"); } catch {}
+    }
+    return nKey;
+  } catch (e) { console.log("[cleanup] exception", e && e.message); return 0; }
+}
+cleanupExpiredKeys();
+const _cleanupTimer = setInterval(cleanupExpiredKeys, 6 * 60 * 60 * 1000);
+if (_cleanupTimer.unref) _cleanupTimer.unref();
+
 app.listen(PORT, () => console.log(`[hestiaflow] listening on port ${PORT}`));
