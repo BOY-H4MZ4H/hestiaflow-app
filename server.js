@@ -119,18 +119,21 @@ function seed() {
     "https://ai4all.infergo.ai/v1"
   );
   db.prepare("UPDATE tiers SET max_models=? WHERE slug=?").run(2, "gratis");
-  // Migrasi 2026-10-21: Tier Gratis GANTI jadi ZeroLimitAI MURNI (brand "Zerolimit").
+  // Migrasi 2026-10-21: Tier Gratis GANTI jadi ZeroLimitAI MURNI di balik layar,
+  // tapi brand publiknya tetap "Luna" (perintah Hestia 2026-10-21 sore: nama provider
+  // TIDAK boleh ditampilkan ke publik — yang tampil brand sendiri, kayak Aurora/Stella).
   // Pelajaran dari upaya 2026-10-18 yang gagal: (1) kode yang ter-deploy waktu itu menunjuk ke
   // bestllmapi saja dan fungsi tryAutoRegisterZerolimit tidak pernah dipanggil dispatcher;
-  // (2) env PROVIDER_LUNA_UPSTREAM_URL menimpa upstream_url tiap boot — brand diganti ke
-  // "Zerolimit" supaya env lama itu tidak lagi menimpa (tidak ada baris "Luna" yang cocok).
+  // (2) env PROVIDER_LUNA_UPSTREAM_URL (basi, menunjuk AI4ALL lama) menimpa upstream_url
+  // tiap boot — sekarang dilawan di sync env (brand LUNA di-skip, upstream dikelola migrasi ini)
+  // dan cabang dispatcher "luna" diarahkan ke tryAutoRegisterZerolimit.
   // Katalog live ZeroLimitAI 2026-10-21: 9 model (auto + 8 :free). 100 calls/hari per akun,
   // trial 6 hari (referralCode di register). Upstream: https://www.zerolimitai.com/api/v1
   const ZEROLIMIT_MODELS = ["auto","minimax/minimax-m3.1-flash:free","google/gemma-4-26b-a4b-it:free","google/gemma-4-31b-it:free","poolside/laguna-s-2.1:free","poolside/laguna-xs-2.1:free","xingchen-agi/xing4.0-29b-a4b:free","dots-studio/dots-3-note-preview:free","cohere/north-mini-code:free"];
   const ZEROLIMIT_NOTES = {"auto":"Router pintar — model terbaik dipilihkan otomatis.","minimax/minimax-m3.1-flash:free":"MiniMax M3.1 Flash — cepat dan ringan.","google/gemma-4-26b-a4b-it:free":"Gemma 4 26B dari Google.","google/gemma-4-31b-it:free":"Gemma 4 31B — model terbesar di tier Gratis.","poolside/laguna-s-2.1:free":"Laguna S 2.1 dari Poolside.","poolside/laguna-xs-2.1:free":"Laguna XS 2.1 — paling ringan.","xingchen-agi/xing4.0-29b-a4b:free":"Xing 4.0 29B.","dots-studio/dots-3-note-preview:free":"Dots 3 Note (preview).","cohere/north-mini-code:free":"Cohere North Mini — fokus coding."};
   db.prepare("UPDATE providers SET brand_name=?, tagline=?, model_count=?, model_list_json=?, model_notes_json=?, credit_note=?, default_credit=?, upstream_url=? WHERE brand_name IN ('Luna','Zerolimit')").run(
-    "Zerolimit",
-    "9 model gratis dari ZeroLimitAI.",
+    "Luna",
+    "9 model gratis untuk semua.",
     9,
     JSON.stringify(ZEROLIMIT_MODELS),
     JSON.stringify(ZEROLIMIT_NOTES),
@@ -162,7 +165,7 @@ function seed() {
   const p = insTier.run("plus", "Plus", "UNTUK PENGGUNA PLUS / BERBAYAR", "TIER PLUS", null, 2).lastInsertRowid;
   const pr = insTier.run("premium", "Premium", "PALING MAHAL", "★ TIER PREMIUM", null, 3).lastInsertRowid;
   const insProv = db.prepare("INSERT INTO providers (tier_id,brand_name,tagline,model_count,model_list_json,model_notes_json,credit_note,default_credit,sort_order) VALUES (?,?,?,?,?,?,?,?,?)");
-  insProv.run(g, "Zerolimit", "9 model gratis dari ZeroLimitAI.", 9,
+  insProv.run(g, "Luna", "9 model gratis untuk semua.", 9,
     JSON.stringify(ZEROLIMIT_MODELS),
     JSON.stringify(ZEROLIMIT_NOTES),
     "100 calls/hari per akun.", null, 1);
@@ -172,7 +175,7 @@ function seed() {
   insProv.run(pr, "Stella", "Bintang paling terang di langit HestiaFlow.", 514,
     JSON.stringify([]), JSON.stringify({}),
     "30.000 token/hari per akun terverifikasi.", 30000, 1);
-  db.prepare("UPDATE providers SET upstream_url=? WHERE brand_name=?").run("https://www.zerolimitai.com/api/v1", "Zerolimit");
+  db.prepare("UPDATE providers SET upstream_url=? WHERE brand_name=?").run("https://www.zerolimitai.com/api/v1", "Luna");
   db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('gateway_name','HestiaFlow')").run();
   db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('base_url',?)").run(GATEWAY_BASE_URL);
 }
@@ -199,6 +202,9 @@ for (const [k, v] of Object.entries(process.env)) {
   if (!k.startsWith("PROVIDER_") || !k.endsWith("_UPSTREAM_URL")) continue;
   const raw = k.slice("PROVIDER_".length, -"_UPSTREAM_URL".length);
   if (!raw) continue;
+  // LUNA di-skip (2026-10-21): env PROVIDER_LUNA_UPSTREAM_URL basi (menunjuk upstream lama);
+  // upstream Luna dikelola migrasi kode supaya tidak tertimpa tiap boot.
+  if (raw === "LUNA") continue;
   const brand = raw.charAt(0) + raw.slice(1).toLowerCase();
   const url = String(v || "").trim();
   if (!url) continue;
@@ -744,10 +750,11 @@ async function tryAutoRegister(provider, tempEmail, tempPassword) {
   const base = (provider.upstream_url || "").replace(/\/$/, "");
   if (!base) return null;
   // Brand-specific flows (proven by operator's own scripts).
-  // Luna = AI4ALL (2026-10-19, bestllmapi tidak kasih trial gratis lagi).
+  // Luna = ZeroLimitAI di balik layar (2026-10-21). Nama provider TIDAK ditampilkan publik;
+  // brand publik tetap "Luna". (Sebelumnya AI4ALL — tryAutoRegisterLuna tidak dipakai lagi.)
   if ((provider.brand_name || "").toLowerCase() === "luna") {
-    const luna = await tryAutoRegisterLuna(provider);
-    if (luna) return luna;
+    const zl = await tryAutoRegisterZerolimit(provider);
+    if (zl) return zl;
     return null;
   }
   if ((provider.brand_name || "").toLowerCase() === "nova") {
