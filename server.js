@@ -119,6 +119,26 @@ function seed() {
     "https://ai4all.infergo.ai/v1"
   );
   db.prepare("UPDATE tiers SET max_models=? WHERE slug=?").run(2, "gratis");
+  // Migrasi 2026-10-21: Tier Gratis GANTI jadi ZeroLimitAI MURNI (brand "Zerolimit").
+  // Pelajaran dari upaya 2026-10-18 yang gagal: (1) kode yang ter-deploy waktu itu menunjuk ke
+  // bestllmapi saja dan fungsi tryAutoRegisterZerolimit tidak pernah dipanggil dispatcher;
+  // (2) env PROVIDER_LUNA_UPSTREAM_URL menimpa upstream_url tiap boot — brand diganti ke
+  // "Zerolimit" supaya env lama itu tidak lagi menimpa (tidak ada baris "Luna" yang cocok).
+  // Katalog live ZeroLimitAI 2026-10-21: 9 model (auto + 8 :free). 100 calls/hari per akun,
+  // trial 6 hari (referralCode di register). Upstream: https://www.zerolimitai.com/api/v1
+  const ZEROLIMIT_MODELS = ["auto","minimax/minimax-m3.1-flash:free","google/gemma-4-26b-a4b-it:free","google/gemma-4-31b-it:free","poolside/laguna-s-2.1:free","poolside/laguna-xs-2.1:free","xingchen-agi/xing4.0-29b-a4b:free","dots-studio/dots-3-note-preview:free","cohere/north-mini-code:free"];
+  const ZEROLIMIT_NOTES = {"auto":"Router pintar — model terbaik dipilihkan otomatis.","minimax/minimax-m3.1-flash:free":"MiniMax M3.1 Flash — cepat dan ringan.","google/gemma-4-26b-a4b-it:free":"Gemma 4 26B dari Google.","google/gemma-4-31b-it:free":"Gemma 4 31B — model terbesar di tier Gratis.","poolside/laguna-s-2.1:free":"Laguna S 2.1 dari Poolside.","poolside/laguna-xs-2.1:free":"Laguna XS 2.1 — paling ringan.","xingchen-agi/xing4.0-29b-a4b:free":"Xing 4.0 29B.","dots-studio/dots-3-note-preview:free":"Dots 3 Note (preview).","cohere/north-mini-code:free":"Cohere North Mini — fokus coding."};
+  db.prepare("UPDATE providers SET brand_name=?, tagline=?, model_count=?, model_list_json=?, model_notes_json=?, credit_note=?, default_credit=?, upstream_url=? WHERE brand_name IN ('Luna','Zerolimit')").run(
+    "Zerolimit",
+    "9 model gratis dari ZeroLimitAI.",
+    9,
+    JSON.stringify(ZEROLIMIT_MODELS),
+    JSON.stringify(ZEROLIMIT_NOTES),
+    "100 calls/hari per akun.",
+    null,
+    "https://www.zerolimitai.com/api/v1"
+  );
+  db.prepare("UPDATE tiers SET max_models=? WHERE slug=?").run(9, "gratis");
   // Migrasi 2026-10-18: Stella GANTI provider jadi Near Research (brand tetap "Stella", buang Free.ai yang cuma 2 model gratis).
   // 471 model, $0.25 per akun, tanpa verifikasi email, auto-register full otomatis.
   db.prepare("UPDATE providers SET tagline=?, model_count=?, model_list_json=?, model_notes_json=?, credit_note=?, default_credit=?, upstream_url=? WHERE brand_name=?").run(
@@ -138,20 +158,21 @@ function seed() {
   const tierCount = db.prepare("SELECT COUNT(*) c FROM tiers").get().c;
   if (tierCount > 0) return;
   const insTier = db.prepare("INSERT INTO tiers (slug,name,audience_label,badge,max_models,sort_order) VALUES (?,?,?,?,?,?)");
-  const g = insTier.run("gratis", "Gratis", "KHUSUS PENGGUNA GRATIS", "TIER GRATIS", 2, 1).lastInsertRowid;
+  const g = insTier.run("gratis", "Gratis", "KHUSUS PENGGUNA GRATIS", "TIER GRATIS", 9, 1).lastInsertRowid;
   const p = insTier.run("plus", "Plus", "UNTUK PENGGUNA PLUS / BERBAYAR", "TIER PLUS", null, 2).lastInsertRowid;
   const pr = insTier.run("premium", "Premium", "PALING MAHAL", "★ TIER PREMIUM", null, 3).lastInsertRowid;
   const insProv = db.prepare("INSERT INTO providers (tier_id,brand_name,tagline,model_count,model_list_json,model_notes_json,credit_note,default_credit,sort_order) VALUES (?,?,?,?,?,?,?,?,?)");
-  insProv.run(g, "Luna", "Cahaya lembut untuk langkah pertama.", 2,
-    JSON.stringify(["qwen3-coder:30b", "llama3.2:3b"]),
-    JSON.stringify({ "qwen3-coder:30b": "Muncul di website provider. Chat terverifikasi jalan.", "llama3.2:3b": "Terdaftar di /v1/models. Tes chat gagal (service_unavailable)." }),
-    "Always-free BETA", null, 1);
+  insProv.run(g, "Zerolimit", "9 model gratis dari ZeroLimitAI.", 9,
+    JSON.stringify(ZEROLIMIT_MODELS),
+    JSON.stringify(ZEROLIMIT_NOTES),
+    "100 calls/hari per akun.", null, 1);
   insProv.run(p, "Aurora", "Cahaya pertama di gerbang kecerdasan.", 30,
     JSON.stringify(AURORA_MODELS), JSON.stringify({}),
     "$0.20 per akun terverifikasi.", 200000, 1);
   insProv.run(pr, "Stella", "Bintang paling terang di langit HestiaFlow.", 514,
     JSON.stringify([]), JSON.stringify({}),
     "30.000 token/hari per akun terverifikasi.", 30000, 1);
+  db.prepare("UPDATE providers SET upstream_url=? WHERE brand_name=?").run("https://www.zerolimitai.com/api/v1", "Zerolimit");
   db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('gateway_name','HestiaFlow')").run();
   db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('base_url',?)").run(GATEWAY_BASE_URL);
 }
@@ -593,9 +614,17 @@ async function tryAutoRegisterRooyai(provider) {
 async function tryAutoRegisterZerolimit(provider) {
   const siteBase = "https://www.zerolimitai.com";
   const apiBase = siteBase + "/api/v1";
-  const tempEmail = `zerolimit${Date.now()}${Math.floor(Math.random()*9999)}@tempomail.id`;
-  const tempPassword = `Zerolimit${Math.floor(100000+Math.random()*900000)}@#`;
-  const tempName = "HestiaFlow User";
+  // Domain email WAJIB yang lolos filter disposable ZeroLimitAI (terverifikasi live 2026-10-20/21
+  // dari script operator: @minafter.com & @byon.in LOLOS; @maildrop.cc ditolak; domain temp-mail
+  // publik seperti @tempomail.id rawan ditolak diam-diam). Tanpa inbox — ZeroLimitAI tidak verifikasi email.
+  const ZL_FIRST = ["Budi","Agus","Joko","Bambang","Slamet","Rudi","Andi","Dedi","Sari","Dewi","Rina","Fitri","Indah","Putri","Maya","Sinta"];
+  const ZL_LAST = ["Santoso","Wijaya","Pratama","Saputra","Hidayat","Nugroho","Rahmawati","Lestari","Putri","Sari","Utama","Perdana"];
+  const zlFirst = ZL_FIRST[Math.floor(Math.random() * ZL_FIRST.length)];
+  const zlLast = ZL_LAST[Math.floor(Math.random() * ZL_LAST.length)];
+  const zlDomain = ["minafter.com", "byon.in"][Math.floor(Math.random() * 2)];
+  const tempEmail = `${zlFirst.toLowerCase()}${Math.floor(10000 + Math.random() * 89999)}${Date.now() % 100000}@${zlDomain}`;
+  const tempPassword = `${zlFirst}12345`;
+  const tempName = `${zlFirst} ${zlLast}`;
   const jar = {};
   const saveCookies = (res) => {
     try {
@@ -611,11 +640,12 @@ async function tryAutoRegisterZerolimit(provider) {
   try {
     const rg = await fetch(siteBase + "/api/auth/register", {
       method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "HestiaFlow/1.0" },
-      body: JSON.stringify({ name: tempName, email: tempEmail, password: tempPassword })
+      body: JSON.stringify({ name: tempName, email: tempEmail, password: tempPassword, referralCode: "0DBE08D4" })
     });
     saveCookies(rg);
     const rj = await rg.json().catch(() => null);
-    if (!rg.ok || !rj || !rj.id) { console.log("[zerolimit] register failed"); return null; }
+    // Bukti sukses = login + key di langkah berikutnya; respons register cukup status OK.
+    if (!rg.ok) { console.log("[zerolimit] register failed status=" + rg.status); return null; }
     const cr = await fetch(siteBase + "/api/auth/csrf", { headers: { "User-Agent": "HestiaFlow/1.0", "Cookie": cookieHdr() } });
     saveCookies(cr);
     const cj = await cr.json().catch(() => null);
@@ -640,6 +670,16 @@ async function tryAutoRegisterZerolimit(provider) {
       const vr = await fetch(apiBase + "/models", { headers: { "Authorization": "Bearer " + newKey, "User-Agent": "HestiaFlow/1.0" } });
       verified = vr.ok;
     } catch {}
+    // Tes chat end-to-end (log saja, tidak menggagalkan panen): bukti key bisa dipakai chat beneran.
+    try {
+      const cr = await fetch(apiBase + "/chat/completions", {
+        method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + newKey, "User-Agent": "HestiaFlow/1.0" },
+        body: JSON.stringify({ model: "auto", messages: [{ role: "user", content: "hi" }], max_tokens: 5 })
+      });
+      const cj = await cr.json().catch(() => null);
+      const hasContent = !!(cj && cj.choices && cj.choices[0] && cj.choices[0].message && cj.choices[0].message.content);
+      console.log(`[zerolimit] chat-test status=${cr.status} ok=${cr.ok} hasContent=${hasContent}`);
+    } catch (e) { console.log("[zerolimit] chat-test exception", e && e.message); }
     console.log(`[zerolimit] auto-register ok, verified=${verified}`);
     return { upstreamApiKey: newKey, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: verified };
   } catch (e) { console.log("[zerolimit] exception", e && e.message); return null; }
@@ -726,6 +766,13 @@ async function tryAutoRegister(provider, tempEmail, tempPassword) {
   if ((provider.brand_name || "").toLowerCase() === "stella") {
     const nr = await tryAutoRegisterNearresearch(provider);
     if (nr) return nr;
+    return null;
+  }
+  // Zerolimit = ZeroLimitAI (2026-10-21, tier Gratis). Register tanpa captcha & tanpa verifikasi email.
+  // Cabang ini yang HILANG di upaya 2026-10-18 — fungsinya ada tapi tidak pernah dipanggil.
+  if ((provider.brand_name || "").toLowerCase() === "zerolimit") {
+    const zl = await tryAutoRegisterZerolimit(provider);
+    if (zl) return zl;
     return null;
   }
   const tryFetch = async (url, opts, ms) => {
