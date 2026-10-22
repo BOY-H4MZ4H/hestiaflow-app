@@ -85,6 +85,18 @@ function seed() {
     const ucols2 = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
     if (!ucols2.includes("gratis_started_at")) db.prepare("ALTER TABLE users ADD COLUMN gratis_started_at TEXT").run();
   } catch {}
+  // Migrasi 2026-10-22: harvested_accounts.fail_count + cooldown_until + expires_at —
+  // auto-hapus akun panen mati/habis saldo (perintah Hestia, biar tidak hapus manual satu-satu):
+  // 401/402/403 pas dipakai -> baris langsung dihapus; 429 -> cooldown_until = 6 jam ke depan
+  // + fail_count naik (baris dilewati selama cooldown); fail_count >= 5 -> disapu cleanup berkala.
+  // expires_at = masa aktif akun panen dari respons register provider (kalau provider kasih tau;
+  // yang tidak kasih tau tetap NULL — kematiannya ketahuan pas dipakai, lalu dihapus juga).
+  try {
+    const hcols = db.prepare("PRAGMA table_info(harvested_accounts)").all().map((c) => c.name);
+    if (!hcols.includes("fail_count")) db.prepare("ALTER TABLE harvested_accounts ADD COLUMN fail_count INTEGER DEFAULT 0").run();
+    if (!hcols.includes("cooldown_until")) db.prepare("ALTER TABLE harvested_accounts ADD COLUMN cooldown_until TEXT").run();
+    if (!hcols.includes("expires_at")) db.prepare("ALTER TABLE harvested_accounts ADD COLUMN expires_at TEXT").run();
+  } catch {}
   // Migrasi: tambah provider Nova (Tier Pro). Model + credit user-facing (bukan secret).
   // upstream_url Nova TIDAK ditulis di kode (anti-bocor) — di-set via env PROVIDER_NOVA_UPSTREAM_URL.
   // Hapus provider Nova dobel (kalau migrasi lama sempat jalan 2x) — sisakan 1 (id terkecil).
@@ -690,6 +702,19 @@ async function tryAutoRegisterZerolimit(provider) {
     });
     saveCookies(rg);
     const rj = await rg.json().catch(() => null);
+    // Masa aktif trial akun dari respons register (kalau provider menyertakannya, mis. field
+    // trial-end): disimpan sebagai expires_at akun panen supaya cleanup berkala bisa menghapus
+    // pas lewat waktunya (2026-10-22). Provider tidak menyertakan -> tetap null.
+    let regExpiresAt = null;
+    try {
+      const srcExp = [rj, rj && rj.user, rj && rj.data].filter(Boolean);
+      for (const s of srcExp) {
+        for (const k of Object.keys(s)) {
+          if (/trial|expir/i.test(k) && typeof s[k] === "string" && !isNaN(Date.parse(s[k]))) { regExpiresAt = new Date(s[k]).toISOString(); break; }
+        }
+        if (regExpiresAt) break;
+      }
+    } catch {}
     // Bukti sukses = login + key di langkah berikutnya; respons register cukup status OK.
     if (!rg.ok) { console.log("[zerolimit] register failed status=" + rg.status); return null; }
     const cr = await fetch(siteBase + "/api/auth/csrf", { headers: { "User-Agent": "HestiaFlow/1.0", "Cookie": cookieHdr() } });
@@ -727,7 +752,7 @@ async function tryAutoRegisterZerolimit(provider) {
       console.log(`[zerolimit] chat-test status=${cr.status} ok=${cr.ok} hasContent=${hasContent}`);
     } catch (e) { console.log("[zerolimit] chat-test exception", e && e.message); }
     console.log(`[zerolimit] auto-register ok, verified=${verified}`);
-    return { upstreamApiKey: newKey, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: verified };
+    return { upstreamApiKey: newKey, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: verified, expiresAt: regExpiresAt };
   } catch (e) { console.log("[zerolimit] exception", e && e.message); return null; }
 }
 
@@ -971,8 +996,8 @@ async function doHarvest({ userId, providerId, count }) {
       if (auto && auto.live) liveCount++;
       const storeEmail = (auto && auto.tempEmail) ? auto.tempEmail : tempEmail;
       const storePass = (auto && auto.tempPassword) ? auto.tempPassword : tempPassword;
-      db.prepare("INSERT INTO harvested_accounts (api_key_id,user_id,provider_id,tier_id,temp_email,temp_password,upstream_api_key,upstream_base_url) VALUES (?,?,?,?,?,?,?,?)")
-        .run(apiKeyId, userId, providerId, provider.tier_id, storeEmail, storePass, auto ? auto.upstreamApiKey : null, auto ? auto.upstreamBaseUrl : null);
+      db.prepare("INSERT INTO harvested_accounts (api_key_id,user_id,provider_id,tier_id,temp_email,temp_password,upstream_api_key,upstream_base_url,expires_at) VALUES (?,?,?,?,?,?,?,?,?)")
+        .run(apiKeyId, userId, providerId, provider.tier_id, storeEmail, storePass, auto ? auto.upstreamApiKey : null, auto ? auto.upstreamBaseUrl : null, (auto && auto.expiresAt) || null);
       const msg = `Panen Akun ${i} Berhasil.`;
       logHarvest(userId, providerId, msg);
       logs.push(msg);
@@ -1469,13 +1494,15 @@ app.post("/v1/chat/completions", async (req, res) => {
   } catch {}
   if (isGratisTier) {
     // Gratis gabungan: ambil SEMUA akun, coba satu-satu (failover).
-    const has = db.prepare("SELECT upstream_api_key, upstream_base_url FROM harvested_accounts WHERE api_key_id=? AND upstream_api_key IS NOT NULL ORDER BY id ASC").all(key.id);
+    // Akun yang lagi cooldown (kena 429, jeda 6 jam) dilewati dulu (2026-10-22).
+    const has = db.prepare("SELECT id, upstream_api_key, upstream_base_url FROM harvested_accounts WHERE api_key_id=? AND upstream_api_key IS NOT NULL AND (cooldown_until IS NULL OR cooldown_until<=?) ORDER BY id ASC").all(key.id, new Date().toISOString());
     for (const h of has) {
-      upstreamCandidates.push({ key: h.upstream_api_key, url: h.upstream_base_url || (provider ? provider.upstream_url : null) });
+      upstreamCandidates.push({ key: h.upstream_api_key, url: h.upstream_base_url || (provider ? provider.upstream_url : null), harvestId: h.id });
     }
   } else {
-    const ha = db.prepare("SELECT upstream_api_key, upstream_base_url FROM harvested_accounts WHERE api_key_id=? AND upstream_api_key IS NOT NULL ORDER BY id DESC LIMIT 1").get(key.id);
-    if (ha) upstreamCandidates.push({ key: ha.upstream_api_key, url: ha.upstream_base_url || (provider ? provider.upstream_url : null) });
+    // Sama: lewati akun yang lagi cooldown, ambil yang terbaru di luar cooldown (2026-10-22).
+    const ha = db.prepare("SELECT id, upstream_api_key, upstream_base_url FROM harvested_accounts WHERE api_key_id=? AND upstream_api_key IS NOT NULL AND (cooldown_until IS NULL OR cooldown_until<=?) ORDER BY id DESC LIMIT 1").get(key.id, new Date().toISOString());
+    if (ha) upstreamCandidates.push({ key: ha.upstream_api_key, url: ha.upstream_base_url || (provider ? provider.upstream_url : null), harvestId: ha.id });
   }
   if (upstreamCandidates.length === 0 && provider) {
     // Fallback ke provider-level
@@ -1495,6 +1522,31 @@ app.post("/v1/chat/completions", async (req, res) => {
     if (BANSOS_MODEL_MAP[model]) fwdBody.model = BANSOS_MODEL_MAP[model];
     if (stream) fwdBody.stream_options = { include_usage: true };
   }
+  // Auto-hapus akun panen mati/habis saldo (2026-10-22, perintah Hestia — biar akun habis
+  // tidak numpuk dan tidak dicoba terus-menerus): hanya kandidat ber-harvestId yang disentuh;
+  // kandidat worker Bansos (workerId) TIDAK pernah dihapus/dijeda oleh logika ini.
+  const panenMati = (cand, status) => {
+    if (!cand.harvestId) return;
+    try {
+      db.prepare("DELETE FROM harvested_accounts WHERE id=?").run(cand.harvestId);
+      console.log(`[cleanup] akun panen #${cand.harvestId} dihapus (upstream ${status})`);
+    } catch {}
+  };
+  const panenJeda = (cand) => {
+    // 429 = batas harian/rate limit (bisa pulih): jeda 6 jam + fail_count naik, JANGAN hapus.
+    if (!cand.harvestId) return;
+    try {
+      db.prepare("UPDATE harvested_accounts SET fail_count=COALESCE(fail_count,0)+1, cooldown_until=? WHERE id=?")
+        .run(new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(), cand.harvestId);
+    } catch {}
+  };
+  const panenPulih = (cand) => {
+    // Akun berhasil melayani lagi: reset hitungan gagal + cooldown-nya.
+    if (!cand.harvestId) return;
+    try {
+      db.prepare("UPDATE harvested_accounts SET fail_count=0, cooldown_until=NULL WHERE id=? AND (COALESCE(fail_count,0)>0 OR cooldown_until IS NOT NULL)").run(cand.harvestId);
+    } catch {}
+  };
   // Failover: coba tiap upstream sampai berhasil (untuk Gratis gabungan).
   let lastError = null;
   for (const cand of upstreamCandidates) {
@@ -1513,9 +1565,15 @@ app.post("/v1/chat/completions", async (req, res) => {
       // Jika rate limit / 402 / 403 / 401 (key upstream mati), coba kandidat berikutnya (failover).
       if ((r.status === 429 || r.status === 402 || r.status === 403 || r.status === 401) && upstreamCandidates.length > 1) {
         clearTimeout(t);
+        // Catat nasib akun panennya (2026-10-22): 429 -> jeda; 401/402/403 -> hapus permanen.
+        if (cand.harvestId) { if (r.status === 429) panenJeda(cand); else panenMati(cand, r.status); }
         lastError = `Upstream ${r.status}, coba berikutnya`;
         continue;
       }
+      // Kandidat satu-satunya: nasib akun panen tetap dicatat sebelum respons diteruskan,
+      // supaya akun mati/habis saldo tidak disimpan & dicoba lagi di request berikutnya (2026-10-22).
+      if (cand.harvestId && (r.status === 401 || r.status === 402 || r.status === 403)) panenMati(cand, r.status);
+      else if (cand.harvestId && r.status === 429) panenJeda(cand);
       if (stream && r.body) {
         // SSE passthrough: stream provider chunks straight to the client.
         res.writeHead(r.status, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
@@ -1534,16 +1592,24 @@ app.post("/v1/chat/completions", async (req, res) => {
           const mB = [...tailB.matchAll(/"total_tokens"\s*:\s*(\d+)/g)];
           if (mB.length) recordBansosUsage(cand.workerId, Number(mB[mB.length - 1][1]));
         }
+        if (cand.harvestId && r.status >= 200 && r.status < 300) panenPulih(cand);
         return res.end();
       }
       clearTimeout(t);
       const data = await r.json().catch(() => ({}));
       // Jika error rate limit, coba berikutnya
       if (data && data.error && /rate[_ ]limit|insufficient|quota|revoked|authentication/i.test(JSON.stringify(data.error)) && upstreamCandidates.length > 1) {
-        lastError = JSON.stringify(data.error).slice(0, 100);
+        // Badan error = bukti akun mati/habis kuota juga (2026-10-22): rate limit -> jeda, sisanya -> hapus.
+        const errTxt = JSON.stringify(data.error);
+        if (cand.harvestId) { if (/rate[_ ]limit/i.test(errTxt)) panenJeda(cand); else panenMati(cand, r.status); }
+        lastError = errTxt.slice(0, 100);
         continue;
       }
       if (isBansosKey && cand.workerId && r.status >= 200 && r.status < 300 && data && data.usage && data.usage.total_tokens) recordBansosUsage(cand.workerId, data.usage.total_tokens);
+      // Satu kandidat + badan error akun mati/habis kuota: tetap dicatat sebelum diteruskan (2026-10-22).
+      // Respons sukses (2xx) dari akun panen: reset fail_count + cooldown-nya.
+      if (cand.harvestId && data && data.error && /insufficient|quota|revoked|authentication/i.test(JSON.stringify(data.error))) panenMati(cand, r.status);
+      else if (cand.harvestId && r.status >= 200 && r.status < 300) panenPulih(cand);
       return res.status(r.status).json(data);
     } catch (e) {
       lastError = e && e.message;
@@ -1663,7 +1729,10 @@ app.post("/api/db-import", (req, res) => {
 // Yang dihapus HANYA key yang expires_at-nya sudah lewat. Key tanpa expires_at
 // (NULL = tanpa masa aktif) dan key yang masih aktif TIDAK disentuh.
 // Akun panenan yatim (key induknya sudah tidak ada) ikut dibersihkan.
-// Jalan sekali pas server nyala + tiap 6 jam, biar database tidak membengkak.
+// Sapuan akun panen (2026-10-22): yang expires_at-nya (masa aktif dari provider) sudah lewat
+// + yang fail_count >= 5 (gagal berulang lewat siklus cooldown 429) ikut dihapus di sini.
+// Jalan sekali pas server nyala + tiap 30 menit (dirapatkan dari 6 jam, 2026-10-22 — perintah
+// Hestia: penghapusan berbasis waktu harus tepat/prompt), biar database tidak membengkak.
 function cleanupExpiredKeys() {
   try {
     const nowIso = new Date().toISOString();
@@ -1676,8 +1745,11 @@ function cleanupExpiredKeys() {
       nKey += delK.run(k.id).changes;
     }
     const orphan = db.prepare("DELETE FROM harvested_accounts WHERE api_key_id NOT IN (SELECT id FROM api_keys)").run();
-    if (nKey || orphan.changes) {
-      console.log(`[cleanup] auto-hapus: ${nKey} key kedaluwarsa, ${nAcc} akun panenannya, ${orphan.changes} akun yatim`);
+    let expAcc = { changes: 0 }, deadAcc = { changes: 0 };
+    try { expAcc = db.prepare("DELETE FROM harvested_accounts WHERE expires_at IS NOT NULL AND expires_at < ?").run(nowIso); } catch {}
+    try { deadAcc = db.prepare("DELETE FROM harvested_accounts WHERE COALESCE(fail_count,0) >= 5").run(); } catch {}
+    if (nKey || orphan.changes || expAcc.changes || deadAcc.changes) {
+      console.log(`[cleanup] auto-hapus: ${nKey} key kedaluwarsa, ${nAcc} akun panenannya, ${orphan.changes} akun yatim, ${expAcc.changes} akun panen kedaluwarsa, ${deadAcc.changes} akun panen gagal berulang`);
       // VACUUM: ruang baris yang dihapus tidak balik sendiri di SQLite — wajib buat volume Railway yang kecil.
       try { db.exec("VACUUM"); console.log("[cleanup] VACUUM selesai, ruang penyimpanan diklaim kembali"); } catch {}
     }
@@ -1685,7 +1757,7 @@ function cleanupExpiredKeys() {
   } catch (e) { console.log("[cleanup] exception", e && e.message); return 0; }
 }
 cleanupExpiredKeys();
-const _cleanupTimer = setInterval(cleanupExpiredKeys, 6 * 60 * 60 * 1000);
+const _cleanupTimer = setInterval(cleanupExpiredKeys, 30 * 60 * 1000);
 if (_cleanupTimer.unref) _cleanupTimer.unref();
 
 app.listen(PORT, () => console.log(`[hestiaflow] listening on port ${PORT}`));
