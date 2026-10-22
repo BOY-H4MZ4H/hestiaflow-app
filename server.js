@@ -138,8 +138,10 @@ function seed() {
   // dan cabang dispatcher "luna" diarahkan ke tryAutoRegisterZerolimit.
   // Katalog live ZeroLimitAI 2026-10-21: 9 model (auto + 8 :free). 100 calls/hari per akun,
   // trial 6 hari (referralCode di register). Upstream: https://www.zerolimitai.com/api/v1
-  const ZEROLIMIT_MODELS = ["auto","minimax/minimax-m3.1-flash:free","google/gemma-4-26b-a4b-it:free","google/gemma-4-31b-it:free","poolside/laguna-s-2.1:free","poolside/laguna-xs-2.1:free","xingchen-agi/xing4.0-29b-a4b:free","dots-studio/dots-3-note-preview:free","cohere/north-mini-code:free"];
-  const ZEROLIMIT_NOTES = {"auto":"Router pintar — model terbaik dipilihkan otomatis.","minimax/minimax-m3.1-flash:free":"MiniMax M3.1 Flash — cepat dan ringan.","google/gemma-4-26b-a4b-it:free":"Gemma 4 26B dari Google.","google/gemma-4-31b-it:free":"Gemma 4 31B — model terbesar di tier Gratis.","poolside/laguna-s-2.1:free":"Laguna S 2.1 dari Poolside.","poolside/laguna-xs-2.1:free":"Laguna XS 2.1 — paling ringan.","xingchen-agi/xing4.0-29b-a4b:free":"Xing 4.0 29B.","dots-studio/dots-3-note-preview:free":"Dots 3 Note (preview).","cohere/north-mini-code:free":"Cohere North Mini — fokus coding."};
+  // Katalog mesin Gratis per 2026-10-22 (diverifikasi live: /v1/models + tes chat 8/8 menjawab):
+  // Laguna S/XS 2.1 HILANG dari katalog sumber; masuk recursive/flint-v1.0:free. Total 8 model.
+  const ZEROLIMIT_MODELS = ["auto","minimax/minimax-m3.1-flash:free","google/gemma-4-31b-it:free","google/gemma-4-26b-a4b-it:free","xingchen-agi/xing4.0-29b-a4b:free","cohere/north-mini-code:free","recursive/flint-v1.0:free","dots-studio/dots-3-note-preview:free"];
+  const ZEROLIMIT_NOTES = {"auto":"Router pintar — model terbaik dipilihkan otomatis.","minimax/minimax-m3.1-flash:free":"MiniMax M3.1 Flash — cepat dan ringan.","google/gemma-4-31b-it:free":"Gemma 4 31B — model terbesar di tier Gratis.","google/gemma-4-26b-a4b-it:free":"Gemma 4 26B dari Google.","xingchen-agi/xing4.0-29b-a4b:free":"Xing 4.0 29B.","cohere/north-mini-code:free":"Cohere North Mini — fokus coding.","recursive/flint-v1.0:free":"Flint v1.0 dari Recursive.","dots-studio/dots-3-note-preview:free":"Dots 3 Note (preview)."};
   db.prepare("UPDATE providers SET brand_name=?, tagline=?, model_count=?, model_list_json=?, model_notes_json=?, credit_note=?, default_credit=?, upstream_url=? WHERE brand_name IN ('Luna','Zerolimit')").run(
     "Luna",
     "9 model gratis untuk semua.",
@@ -151,6 +153,24 @@ function seed() {
     "https://www.zerolimitai.com/api/v1"
   );
   db.prepare("UPDATE tiers SET max_models=? WHERE slug=?").run(9, "gratis");
+  // Migrasi 2026-10-22: Tier Gratis TETAP di mesin yang sama (keputusan final Hestia) —
+  // katalog diselaraskan ke hasil verifikasi live 2026-10-22: TEPAT 8 model (daftar di
+  // ZEROLIMIT_MODELS). Laguna S/XS 2.1 sudah tidak dilayani sumbernya (404 dari akun
+  // segar), diganti recursive/flint-v1.0:free. Brand publik tetap "Luna"; fungsi panen
+  // internal untuk brand ini tidak berubah. max_models Gratis = 8.
+  // upstream_url TIDAK ditulis di sini (anti-bocor, repo publik): URL upstream datang
+  // dari env lewat sync env saat boot (dipetakan ke brand publik "Luna" di bagian sync).
+  // Migrasi ini hanya mengatur katalog & label publik.
+  db.prepare("UPDATE providers SET brand_name=?, tagline=?, model_count=?, model_list_json=?, model_notes_json=?, credit_note=?, default_credit=? WHERE brand_name IN ('Luna','Zerolimit')").run(
+    "Luna",
+    "8 model gratis untuk semua.",
+    8,
+    JSON.stringify(ZEROLIMIT_MODELS),
+    JSON.stringify(ZEROLIMIT_NOTES),
+    "100 calls/hari per akun.",
+    null
+  );
+  db.prepare("UPDATE tiers SET max_models=? WHERE slug=?").run(8, "gratis");
   // Migrasi 2026-10-18: Stella GANTI provider jadi Near Research (brand tetap "Stella", buang Free.ai yang cuma 2 model gratis).
   // 471 model, $0.25 per akun, tanpa verifikasi email, auto-register full otomatis.
   db.prepare("UPDATE providers SET tagline=?, model_count=?, model_list_json=?, model_notes_json=?, credit_note=?, default_credit=?, upstream_url=? WHERE brand_name=?").run(
@@ -167,24 +187,33 @@ function seed() {
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("★ TIER PREMIUM", "premium");
   // Koreksi permanen: base_url lama (domain mati) diganti domain live.
   db.prepare("UPDATE settings SET value='https://hestiaflow.lovie.me/v1' WHERE key='base_url' AND value LIKE '%hestia-gateway.id%'").run();
-  const tierCount = db.prepare("SELECT COUNT(*) c FROM tiers").get().c;
+  // Penjaga seed awal (diperbaiki 2026-10-22): tier 'pro' disisipkan migrasi di atas SEBELUM
+  // hitungan ini, jadi hitungan lama (semua tier) selalu > 0 dan cabang ini TIDAK PERNAH jalan
+  // di database kosong — akibatnya boot segar (mis. Hostless, DB /tmp efemeral) hanya punya
+  // tier Pro + provider Bansos/Nova, tanpa Gratis/Luna sama sekali. Sekarang: hitung tier
+  // SELAIN 'pro'; insert dibuat idempotent (OR IGNORE + id dicari per slug + cek brand).
+  const tierCount = db.prepare("SELECT COUNT(*) c FROM tiers WHERE slug<>'pro'").get().c;
   if (tierCount > 0) return;
-  const insTier = db.prepare("INSERT INTO tiers (slug,name,audience_label,badge,max_models,sort_order) VALUES (?,?,?,?,?,?)");
-  const g = insTier.run("gratis", "Gratis", "KHUSUS PENGGUNA GRATIS", "TIER GRATIS", 9, 1).lastInsertRowid;
-  const p = insTier.run("plus", "Plus", "UNTUK PENGGUNA PLUS / BERBAYAR", "TIER PLUS", null, 2).lastInsertRowid;
-  const pr = insTier.run("premium", "Premium", "PALING MAHAL", "★ TIER PREMIUM", null, 3).lastInsertRowid;
+  const insTier = db.prepare("INSERT OR IGNORE INTO tiers (slug,name,audience_label,badge,max_models,sort_order) VALUES (?,?,?,?,?,?)");
+  insTier.run("gratis", "Gratis", "KHUSUS PENGGUNA GRATIS", "TIER GRATIS", 8, 1);
+  insTier.run("plus", "Plus", "UNTUK PENGGUNA PLUS / BERBAYAR", "TIER PLUS", null, 2);
+  insTier.run("premium", "Premium", "PALING MAHAL", "★ TIER PREMIUM", null, 4);
+  const tierId = (slug) => db.prepare("SELECT id FROM tiers WHERE slug=?").get(slug).id;
+  const g = tierId("gratis"), p = tierId("plus"), pr = tierId("premium");
+  const provAda = (b) => !!db.prepare("SELECT 1 FROM providers WHERE brand_name=?").get(b);
   const insProv = db.prepare("INSERT INTO providers (tier_id,brand_name,tagline,model_count,model_list_json,model_notes_json,credit_note,default_credit,sort_order) VALUES (?,?,?,?,?,?,?,?,?)");
-  insProv.run(g, "Luna", "9 model gratis untuk semua.", 9,
+  if (!provAda("Luna")) insProv.run(g, "Luna", "8 model gratis untuk semua.", 8,
     JSON.stringify(ZEROLIMIT_MODELS),
     JSON.stringify(ZEROLIMIT_NOTES),
     "100 calls/hari per akun.", null, 1);
-  insProv.run(p, "Aurora", "Cahaya pertama di gerbang kecerdasan.", 30,
+  if (!provAda("Aurora")) insProv.run(p, "Aurora", "Cahaya pertama di gerbang kecerdasan.", 30,
     JSON.stringify(AURORA_MODELS), JSON.stringify({}),
     "$0.20 per akun terverifikasi.", 200000, 1);
-  insProv.run(pr, "Stella", "Bintang paling terang di langit HestiaFlow.", 514,
+  if (!provAda("Stella")) insProv.run(pr, "Stella", "Bintang paling terang di langit HestiaFlow.", 514,
     JSON.stringify([]), JSON.stringify({}),
     "30.000 token/hari per akun terverifikasi.", 30000, 1);
-  db.prepare("UPDATE providers SET upstream_url=? WHERE brand_name=?").run("https://www.zerolimitai.com/api/v1", "Luna");
+  // Upstream Luna di seed awal TIDAK ditulis di kode (anti-bocor) — sync env sesudah seed()
+  // menerapkannya dari env ke baris "Luna" di boot yang sama.
   db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('gateway_name','HestiaFlow')").run();
   db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('base_url',?)").run(GATEWAY_BASE_URL);
 }
@@ -214,7 +243,9 @@ for (const [k, v] of Object.entries(process.env)) {
   // LUNA di-skip (2026-10-21): env PROVIDER_LUNA_UPSTREAM_URL basi (menunjuk upstream lama);
   // upstream Luna dikelola migrasi kode supaya tidak tertimpa tiap boot.
   if (raw === "LUNA") continue;
-  const brand = raw.charAt(0) + raw.slice(1).toLowerCase();
+  // Mesin Gratis dipetakan ke brand publik "Luna" (2026-10-22): baris provider-nya bernama
+  // "Luna", jadi env upstream khusus mesin itu diterapkan ke baris "Luna", bukan brand sendiri.
+  const brand = raw === "ZEROLIMIT" ? "Luna" : raw.charAt(0) + raw.slice(1).toLowerCase();
   const url = String(v || "").trim();
   if (!url) continue;
   try { db.prepare("UPDATE providers SET upstream_url=? WHERE brand_name=?").run(url, brand); } catch {}
