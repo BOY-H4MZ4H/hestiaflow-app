@@ -71,6 +71,10 @@ function seed() {
     if (!kcolsB.includes("anon_id")) db.prepare("ALTER TABLE api_keys ADD COLUMN anon_id TEXT").run();
   } catch {}
   db.prepare("CREATE TABLE IF NOT EXISTS bansos_usage (day TEXT, worker_id INTEGER, tokens INTEGER DEFAULT 0, requests INTEGER DEFAULT 0, PRIMARY KEY(day, worker_id))").run();
+  // JALUR 2 (2026-10-23): tier Media + log generate gambar/video. media_logs = catatan pantauan
+  // (siapa, model apa, prompt, biaya, hasil tersalin ke Drive pantauan?) untuk admin/moderasi.
+  db.prepare("CREATE TABLE IF NOT EXISTS media_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, api_key_id INTEGER, user_id INTEGER, media_type TEXT, model TEXT, prompt TEXT, cost_usd REAL, gen_id TEXT, source_url TEXT, drive_path TEXT, copy_status TEXT, created_at TEXT DEFAULT (datetime('now')))").run();
+  db.prepare("INSERT OR IGNORE INTO tiers (slug,name,audience_label,badge,max_models,sort_order) VALUES ('media','Media','UNTUK PENGGUNA MEDIA','TIER MEDIA',NULL,5)").run();
   // Provider Bansos (tanpa tier): 4 model pilihan. Key upstream (pool akun) disimpan di tabel workers,
   // di-seed dari env BANSOS_UPSTREAM_KEYS. upstream_url server-side saja (tidak pernah tampil publik).
   // Nama publik = nama asli model (tanpa prefix agregator). upstream_url via env PROVIDER_BANSOS_UPSTREAM_URL.
@@ -1623,6 +1627,156 @@ app.post("/v1/chat/completions", async (req, res) => {
 
 // ---------- gateway: generate gambar (khusus Stella / Premium) ----------
 // Model gambar upstream bekerja lewat chat completions; endpoint ini menerjemahkan
+// ================= JALUR 2 — MEDIA (gambar/video) + PANTAUAN DRIVE =================
+// Perintah Hestia 2026-10-23: web support generate gambar & video; SEMUA hasil WAJIB
+// tersalin ke Google Drive pantauan miliknya (akun 400GB) dengan identitas key pembuatnya,
+// supaya bisa dipantau + diblokir kalau ada yang macam-macam (catatan: media_logs).
+// Mesin: Renderful (POST /v1/generations, async poll). Pool key dari env RENDERFUL_API_KEYS
+// (pisah koma/spasi, pola sama seperti pool Bansos). Salin ke Drive MURNI fetch (tanpa
+// rclone): token dari PANTAU_CLIENT_ID/PANTAU_CLIENT_SECRET/PANTAU_REFRESH_TOKEN (scope
+// drive.file, folder akar "hestiaflow-pantau", subfolder = key_prefix pembuat).
+const MEDIA_IMAGE_MODELS = ["flux-schnell", "z-image", "grok-imagine-image", "wan-2.2", "flux-dev", "gpt-image-2", "seedream-5.0-lite"];
+const MEDIA_VIDEO_MODELS = ["seedance-1.5-pro", "seedance-1.0-pro-fast"];
+const RENDERFUL_BASE = "https://api.renderful.ai/v1";
+function renderfulKeys() { return (process.env.RENDERFUL_API_KEYS || "").split(/[\s,]+/).map((s) => s.trim()).filter(Boolean); }
+let _rfIdx = 0;
+function logMedia(row) {
+  try {
+    db.prepare("INSERT INTO media_logs (api_key_id,user_id,media_type,model,prompt,cost_usd,gen_id,source_url,drive_path,copy_status) VALUES (?,?,?,?,?,?,?,?,?,?)")
+      .run(row.api_key_id || null, row.user_id || null, row.media_type, row.model, (row.prompt || "").slice(0, 500), row.cost_usd || null, row.gen_id || null, row.source_url || null, row.drive_path || null, row.copy_status || null);
+  } catch {}
+}
+async function renderfulGenerate(apiKey, type, model, prompt, extra) {
+  const r = await fetch(RENDERFUL_BASE + "/generations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
+    body: JSON.stringify(Object.assign({ model, type, prompt }, extra || {})),
+    signal: AbortSignal.timeout(60000),
+  });
+  const j = await r.json().catch(() => null);
+  if (!r.ok || !j || !j.id) throw new Error("renderful " + r.status + " " + ((j && (j.message || j.error)) || ""));
+  const deadline = Date.now() + (type.includes("video") ? 300000 : 180000);
+  let last = j;
+  while (Date.now() < deadline) {
+    await new Promise((s) => setTimeout(s, 5000));
+    const g = await fetch(RENDERFUL_BASE + "/generations/" + j.id, { headers: { Authorization: "Bearer " + apiKey }, signal: AbortSignal.timeout(30000) });
+    last = await g.json().catch(() => null);
+    if (last && last.status === "completed") return last;
+    if (last && (last.status === "failed" || last.status === "error")) throw new Error("renderful generation failed");
+  }
+  throw new Error("renderful timeout");
+}
+let _pantauTok = { token: null, exp: 0 };
+async function pantauAccessToken() {
+  if (_pantauTok.token && Date.now() < _pantauTok.exp) return _pantauTok.token;
+  const cid = process.env.PANTAU_CLIENT_ID, sec = process.env.PANTAU_CLIENT_SECRET, ref = process.env.PANTAU_REFRESH_TOKEN;
+  if (!cid || !sec || !ref) return null;
+  const r = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: cid, client_secret: sec, refresh_token: ref, grant_type: "refresh_token" }),
+    signal: AbortSignal.timeout(30000),
+  });
+  const j = await r.json().catch(() => null);
+  if (!j || !j.access_token) return null;
+  _pantauTok = { token: j.access_token, exp: Date.now() + ((j.expires_in || 3600) - 120) * 1000 };
+  return _pantauTok.token;
+}
+async function pantauFindOrCreateFolder(tok, name, parent) {
+  const q = encodeURIComponent("name='" + name.replace(/'/g, "\\'") + "' and mimeType='application/vnd.google-apps.folder' and trashed=false" + (parent ? " and '" + parent + "' in parents" : ""));
+  const r = await fetch("https://www.googleapis.com/drive/v3/files?q=" + q + "&fields=files(id,name)", { headers: { Authorization: "Bearer " + tok }, signal: AbortSignal.timeout(30000) });
+  const j = await r.json().catch(() => null);
+  if (j && j.files && j.files.length) return j.files[0].id;
+  const b = { name, mimeType: "application/vnd.google-apps.folder" };
+  if (parent) b.parents = [parent];
+  const c = await fetch("https://www.googleapis.com/drive/v3/files", { method: "POST", headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" }, body: JSON.stringify(b), signal: AbortSignal.timeout(30000) });
+  const cj = await c.json().catch(() => null);
+  return (cj && cj.id) || null;
+}
+async function copyToPantau(folderName, fileName, srcUrl) {
+  const tok = await pantauAccessToken();
+  if (!tok) return { status: "pantau_not_configured" };
+  const root = await pantauFindOrCreateFolder(tok, "hestiaflow-pantau", null);
+  if (!root) return { status: "folder_failed" };
+  const sub = await pantauFindOrCreateFolder(tok, folderName, root);
+  if (!sub) return { status: "folder_failed" };
+  const dl = await fetch(srcUrl, { signal: AbortSignal.timeout(120000) });
+  if (!dl.ok) return { status: "download_failed" };
+  const buf = Buffer.from(await dl.arrayBuffer());
+  const mime = dl.headers.get("content-type") || "application/octet-stream";
+  const boundary = "hf" + Date.now().toString(36);
+  const meta = JSON.stringify({ name: fileName, parents: [sub] });
+  const body = Buffer.concat([
+    Buffer.from("--" + boundary + "\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + meta + "\r\n--" + boundary + "\r\nContent-Type: " + mime + "\r\n\r\n"),
+    buf,
+    Buffer.from("\r\n--" + boundary + "--"),
+  ]);
+  const up = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + tok, "Content-Type": "multipart/related; boundary=" + boundary },
+    body,
+    signal: AbortSignal.timeout(180000),
+  });
+  const uj = await up.json().catch(() => null);
+  if (!up.ok || !uj || !uj.id) return { status: "upload_failed" };
+  return { status: "ok", fileId: uj.id, path: "hestiaflow-pantau/" + folderName + "/" + fileName };
+}
+async function handleMedia(req, res, mediaType, key) {
+  if (key._pro_locked) return res.status(401).json({ error: { message: "Tier Pro sedang dalam perbaikan. Coba lagi nanti.", type: "invalid_request_error", param: null, code: "pro_locked" } });
+  if (key._expired) return res.status(401).json({ error: { message: "API key sudah kadaluarsa. Panen lagi atau upgrade paket!", type: "invalid_request_error", param: null, code: "key_expired" } });
+  if (!key.user_id) return res.status(403).json({ error: { message: "Generate media butuh API key dari akun yang login (bukan key anonim).", type: "invalid_request_error", param: null, code: "media_login_required" } });
+  const tier = key.tier_id ? db.prepare("SELECT slug FROM tiers WHERE id=?").get(key.tier_id) : null;
+  if (!tier || tier.slug !== "media") return res.status(403).json({ error: { message: "Generate gambar/video khusus tier Media.", type: "invalid_request_error", param: null, code: "media_tier_only" } });
+  const keys = renderfulKeys();
+  if (!keys.length) return res.status(502).json({ error: { message: "Mesin media belum dikonfigurasi operator.", type: "upstream_error", param: null, code: "upstream_not_configured" } });
+  const body = req.body || {};
+  const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+  if (!prompt) return res.status(400).json({ error: { message: "prompt is required.", type: "invalid_request_error", param: "prompt", code: "invalid_request" } });
+  const isVideo = mediaType === "video";
+  const list = isVideo ? MEDIA_VIDEO_MODELS : MEDIA_IMAGE_MODELS;
+  const model = body.model || list[0];
+  if (!list.includes(model)) return res.status(404).json({ error: { message: "Model media '" + model + "' tidak tersedia. Pilihan: " + list.join(", ") + ".", type: "invalid_request_error", param: "model", code: "model_not_found" } });
+  const extra = {};
+  if (body.aspect_ratio) extra.aspect_ratio = String(body.aspect_ratio);
+  if (!isVideo && body.size) {
+    const sz = String(body.size).toLowerCase();
+    if (sz.includes("1536x1024") || sz === "16:9" || sz === "landscape") extra.aspect_ratio = "16:9";
+    else if (sz.includes("1024x1536") || sz === "9:16" || sz === "portrait" || sz === "vertical") extra.aspect_ratio = "9:16";
+    else if (sz.includes("1024x1024") || sz === "1:1") extra.aspect_ratio = "1:1";
+  }
+  if (isVideo) {
+    // Resep terverifikasi 2026-10-23: tanpa resolution eksplisit, Renderful mengisi "1k"
+    // (bawaan gambar) dan Seedance menolaknya ("resolution not valid"). Durasi sah 4-12 dtk.
+    extra.resolution = body.resolution ? String(body.resolution) : "720p";
+    const d = parseInt(body.duration, 10);
+    extra.duration = Number.isFinite(d) ? Math.min(12, Math.max(4, d)) : 5;
+  }
+  let gen = null, lastErr = null;
+  for (let i = 0; i < keys.length && !gen; i++) {
+    const apiKey = keys[(_rfIdx + i) % keys.length];
+    try { gen = await renderfulGenerate(apiKey, isVideo ? "text-to-video" : "text-to-image", model, prompt, extra); _rfIdx = (_rfIdx + i) % keys.length; }
+    catch (e) { lastErr = e; }
+  }
+  if (!gen) {
+    logMedia({ api_key_id: key.id, user_id: key.user_id, media_type: mediaType, model, prompt, copy_status: "generation_failed" });
+    return res.status(502).json({ error: { message: "Generate media gagal. Coba lagi nanti. (" + ((lastErr && lastErr.message) || "upstream") + ")", type: "upstream_error", param: null, code: "media_generation_failed" } });
+  }
+  const outUrl = (gen.outputs && gen.outputs[0]) || gen.output || "";
+  const extRaw = (outUrl.split("?")[0].split(".").pop() || "").toLowerCase();
+  const ext = /^[a-z0-9]{2,5}$/.test(extRaw) ? extRaw : (isVideo ? "mp4" : "jpg");
+  const ts = new Date().toISOString().replace(/[:.]/g, "-");
+  const fileName = ts + "_" + model + "_" + gen.id + "." + ext;
+  let copy = { status: "skipped" };
+  try { copy = await copyToPantau(key.key_prefix || ("key" + key.id), fileName, outUrl); } catch { copy = { status: "copy_exception" }; }
+  logMedia({ api_key_id: key.id, user_id: key.user_id, media_type: mediaType, model, prompt, cost_usd: (typeof gen.cost === "number" ? gen.cost : null), gen_id: gen.id, source_url: outUrl, drive_path: copy.path || null, copy_status: copy.status });
+  return res.json({ created: Math.floor(Date.now() / 1000), data: [{ url: outUrl }] });
+}
+app.post("/v1/videos/generations", async (req, res) => {
+  const key = gatewayAuth(req);
+  if (!key) return res.status(401).json({ error: { message: "Incorrect API key provided.", type: "invalid_request_error", param: null, code: "invalid_api_key" } });
+  try { return await handleMedia(req, res, "video", key); }
+  catch (e) { return res.status(500).json({ error: { message: "Media handler error: " + (e && e.message), type: "upstream_error", param: null, code: "media_internal_error" } }); }
+});
 // format OpenAI images <-> chat, lalu membalas {created, data:[{b64_json}]}.
 const IMAGE_MODEL_MAP = {
   "gemini-2.5-flash-image": "google/gemini-2.5-flash-image",
@@ -1639,6 +1793,8 @@ app.post("/v1/images/generations", async (req, res) => {
   if (!key) return res.status(401).json({ error: { message: "Incorrect API key provided.", type: "invalid_request_error", param: null, code: "invalid_api_key" } });
   if (key._pro_locked) return res.status(401).json({ error: { message: "Tier Pro sedang dalam perbaikan. Coba lagi nanti.", type: "invalid_request_error", param: null, code: "pro_locked" } });
   if (key._expired) return res.status(401).json({ error: { message: "API key sudah kadaluarsa. Panen lagi atau upgrade paket!", type: "invalid_request_error", param: null, code: "key_expired" } });
+  // JALUR 2: key tier Media dialihkan ke mesin Renderful + pantauan Drive (handleMedia).
+  try { const t = key.tier_id ? db.prepare("SELECT slug FROM tiers WHERE id=?").get(key.tier_id) : null; if (t && t.slug === "media") return await handleMedia(req, res, "image", key); } catch (e) { return res.status(500).json({ error: { message: "Media handler error: " + (e && e.message), type: "upstream_error", param: null, code: "media_internal_error" } }); }
   // Catatan: kunci "Segera Hadir" (chat) tidak berlaku di sini — fitur gambar memang khusus Stella.
   const provider = key.provider_id ? db.prepare("SELECT * FROM providers WHERE id=?").get(key.provider_id) : null;
   if (!provider || provider.brand_name !== "Stella") return res.status(403).json({ error: { message: "Generate gambar hanya untuk pengguna Premium (Stella). Upgrade paket untuk memakai fitur ini.", type: "invalid_request_error", param: null, code: "image_premium_only" } });
