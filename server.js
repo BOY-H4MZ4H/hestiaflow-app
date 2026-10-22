@@ -925,7 +925,7 @@ async function tryAutoRegister(provider, tempEmail, tempPassword) {
 
 const TIER_HARVEST_LIMIT = { gratis: 100, plus: 500, pro: 1500, premium: 5000 };
 const TIER_RANK = { gratis: 0, plus: 1, pro: 2, premium: 3 };
-const VOUCHER_DAYS = { plus: 3, pro: 7, premium: 14 };
+const VOUCHER_DAYS = { plus: 3, pro: 7, premium: 14, media: 7 };
 function effectiveTierSlug(u) { if (!u) return "gratis"; if (u.tier_expires_at && new Date(u.tier_expires_at) < new Date()) return "gratis"; return u.tier_slug || "gratis"; }
 function genVoucherCode() { const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; let s = ""; for (let i = 0; i < 16; i++) s += chars[crypto.randomInt(chars.length)]; return s.slice(0, 4) + "-" + s.slice(4, 8) + "-" + s.slice(8, 12) + "-" + s.slice(12, 16); }
 async function doHarvest({ userId, providerId, count }) {
@@ -1188,12 +1188,23 @@ app.post("/api/voucher/redeem", requireAuth, (req, res) => {
   const expires = new Date(Date.now() + (v.duration_days || 0) * 86400000).toISOString();
   db.prepare("UPDATE vouchers SET used=1, used_by=?, used_at=datetime('now') WHERE id=?").run(req.user.id, v.id);
   db.prepare("UPDATE users SET tier_slug=?, tier_expires_at=? WHERE id=?").run(v.tier_slug, expires, req.user.id);
-  res.json({ ok: true, tierSlug: v.tier_slug, expiresAt: expires, message: `Vocher berhasil! Paket kamu jadi ${v.tier_slug === "premium" ? "Premium" : v.tier_slug === "pro" ? "Pro" : "Plus"} sampai ${new Date(expires).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}.` });
+  const label = { plus: "Plus", pro: "Pro", premium: "Premium", media: "Media" }[v.tier_slug] || v.tier_slug;
+  // Voucher Media: terbitkan 1 API key tier Media (kedaluwarsa = akhir masa voucher).
+  let mediaKey = null;
+  if (v.tier_slug === "media") {
+    const mt = db.prepare("SELECT id FROM tiers WHERE slug='media'").get();
+    if (mt) {
+      const models = [...MEDIA_IMAGE_MODELS, ...MEDIA_I2I_MODELS, ...MEDIA_VIDEO_MODELS, ...MEDIA_V2V_MODELS];
+      mediaKey = `hgw-${randHex(16)}`;
+      db.prepare("INSERT INTO api_keys (user_id,provider_id,tier_id,key_value,key_prefix,credit,models_json,model_source,model_count,expires_at) VALUES (?,?,?, ?,?,NULL,?,'media',?,?)").run(req.user.id, null, mt.id, mediaKey, mediaKey.slice(0, 12), JSON.stringify(models), models.length, expires);
+    }
+  }
+  res.json({ ok: true, tierSlug: v.tier_slug, expiresAt: expires, mediaKey, message: `Vocher berhasil! Paket kamu jadi ${label} sampai ${new Date(expires).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}.` + (mediaKey ? ` API key Media kamu: ${mediaKey} — tersimpan juga di daftar Key Saya.` : "") });
 });
 // Admin: buat / list / hapus vocher.
 app.post("/api/admin/vouchers", requireAdmin, (req, res) => {
   const slug = String(req.body.tierSlug || "").toLowerCase();
-  if (!["plus", "pro", "premium"].includes(slug)) return res.status(400).json({ ok: false, error: "invalid_tier" });
+  if (!["plus", "pro", "premium", "media"].includes(slug)) return res.status(400).json({ ok: false, error: "invalid_tier" });
   const code = genVoucherCode();
   const r = db.prepare("INSERT INTO vouchers (code,tier_slug,duration_days) VALUES (?,?,?)").run(code, slug, VOUCHER_DAYS[slug]);
   res.json({ ok: true, voucher: { id: r.lastInsertRowid, code, tierSlug: slug, durationDays: VOUCHER_DAYS[slug], used: false } });
@@ -1637,6 +1648,12 @@ app.post("/v1/chat/completions", async (req, res) => {
 // drive.file, folder akar "hestiaflow-pantau", subfolder = key_prefix pembuat).
 const MEDIA_IMAGE_MODELS = ["flux-schnell", "z-image", "grok-imagine-image", "wan-2.2", "flux-dev", "gpt-image-2", "seedream-5.0-lite"];
 const MEDIA_VIDEO_MODELS = ["seedance-1.5-pro", "seedance-1.0-pro-fast"];
+// Edit gambar (image-to-image; wajib image_url) + video-dari-video (wajib video_url).
+// Nama field input dibuktikan dari pesan error provider 2026-10-23.
+// gpt-image-1-mini-i2i DIBUANG 2026-10-23: key OpenAI milik provider sendiri mati
+// ("GPT Image edit failed: Incorrect API key provided: sk-proj-***") — model rusak di hulu.
+const MEDIA_I2I_MODELS = ["seededit-3.0-i2i", "grok-imagine-image-i2i", "seedream-4-i2i", "flux-kontext-pro-i2i", "flux-2-i2i", "nano-banana-pro-i2i", "gpt-image-2-i2i"];
+const MEDIA_V2V_MODELS = ["bytedance-video-upscaler", "lucy-restyle", "lucy-edit", "wan-2.7-videoedit", "seedance-2.0-video-edit", "happyhorse-1.0-video-edit"];
 const RENDERFUL_BASE = "https://api.renderful.ai/v1";
 function renderfulKeys() { return (process.env.RENDERFUL_API_KEYS || "").split(/[\s,]+/).map((s) => s.trim()).filter(Boolean); }
 let _rfIdx = 0;
@@ -1662,7 +1679,7 @@ async function renderfulGenerate(apiKey, type, model, prompt, extra) {
     const g = await fetch(RENDERFUL_BASE + "/generations/" + j.id, { headers: { Authorization: "Bearer " + apiKey }, signal: AbortSignal.timeout(30000) });
     last = await g.json().catch(() => null);
     if (last && last.status === "completed") return last;
-    if (last && (last.status === "failed" || last.status === "error")) throw new Error("renderful generation failed");
+    if (last && (last.status === "failed" || last.status === "error")) throw new Error("renderful generation failed: " + (last.error || last.message || "unknown"));
   }
   throw new Error("renderful timeout");
 }
@@ -1733,10 +1750,18 @@ async function handleMedia(req, res, mediaType, key) {
   const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
   if (!prompt) return res.status(400).json({ error: { message: "prompt is required.", type: "invalid_request_error", param: "prompt", code: "invalid_request" } });
   const isVideo = mediaType === "video";
-  const list = isVideo ? MEDIA_VIDEO_MODELS : MEDIA_IMAGE_MODELS;
+  const list = isVideo ? [...MEDIA_VIDEO_MODELS, ...MEDIA_V2V_MODELS] : [...MEDIA_IMAGE_MODELS, ...MEDIA_I2I_MODELS];
   const model = body.model || list[0];
   if (!list.includes(model)) return res.status(404).json({ error: { message: "Model media '" + model + "' tidak tersedia. Pilihan: " + list.join(", ") + ".", type: "invalid_request_error", param: "model", code: "model_not_found" } });
+  const isI2I = !isVideo && MEDIA_I2I_MODELS.includes(model);
+  const isV2V = isVideo && MEDIA_V2V_MODELS.includes(model);
+  const imageUrl = body.image_url || body.image || body.input_image || null;
+  const videoUrl = body.video_url || body.video || body.input_video || null;
+  if (isI2I && !imageUrl) return res.status(400).json({ error: { message: "Model edit gambar butuh image_url (URL gambar sumber).", type: "invalid_request_error", param: "image_url", code: "invalid_request" } });
+  if (isV2V && !videoUrl) return res.status(400).json({ error: { message: "Model video-dari-video butuh video_url (URL video sumber).", type: "invalid_request_error", param: "video_url", code: "invalid_request" } });
   const extra = {};
+  if (imageUrl && !isVideo) extra.image_url = String(imageUrl);
+  if (videoUrl && isVideo) extra.video_url = String(videoUrl);
   if (body.aspect_ratio) extra.aspect_ratio = String(body.aspect_ratio);
   if (!isVideo && body.size) {
     const sz = String(body.size).toLowerCase();
@@ -1744,9 +1769,10 @@ async function handleMedia(req, res, mediaType, key) {
     else if (sz.includes("1024x1536") || sz === "9:16" || sz === "portrait" || sz === "vertical") extra.aspect_ratio = "9:16";
     else if (sz.includes("1024x1024") || sz === "1:1") extra.aspect_ratio = "1:1";
   }
-  if (isVideo) {
+  if (isVideo && !isV2V) {
     // Resep terverifikasi 2026-10-23: tanpa resolution eksplisit, Renderful mengisi "1k"
     // (bawaan gambar) dan Seedance menolaknya ("resolution not valid"). Durasi sah 4-12 dtk.
+    // Model video-dari-video dikecualikan: bentuknya mengikuti video sumber.
     extra.resolution = body.resolution ? String(body.resolution) : "720p";
     const d = parseInt(body.duration, 10);
     extra.duration = Number.isFinite(d) ? Math.min(12, Math.max(4, d)) : 5;
@@ -1754,7 +1780,7 @@ async function handleMedia(req, res, mediaType, key) {
   let gen = null, lastErr = null;
   for (let i = 0; i < keys.length && !gen; i++) {
     const apiKey = keys[(_rfIdx + i) % keys.length];
-    try { gen = await renderfulGenerate(apiKey, isVideo ? "text-to-video" : "text-to-image", model, prompt, extra); _rfIdx = (_rfIdx + i) % keys.length; }
+    try { gen = await renderfulGenerate(apiKey, isI2I ? "image-to-image" : isV2V ? "video-to-video" : isVideo ? "text-to-video" : "text-to-image", model, prompt, extra); _rfIdx = (_rfIdx + i) % keys.length; }
     catch (e) { lastErr = e; }
   }
   if (!gen) {
@@ -1768,6 +1794,13 @@ async function handleMedia(req, res, mediaType, key) {
   const fileName = ts + "_" + model + "_" + gen.id + "." + ext;
   let copy = { status: "skipped" };
   try { copy = await copyToPantau(key.key_prefix || ("key" + key.id), fileName, outUrl); } catch { copy = { status: "copy_exception" }; }
+  // Bahan sumber (edit gambar / video-dari-video) ikut disalin ke folder pantauan yang sama.
+  const inputUrl = isI2I ? imageUrl : isV2V ? videoUrl : null;
+  if (inputUrl) {
+    const iExtRaw = (String(inputUrl).split("?")[0].split(".").pop() || "").toLowerCase();
+    const iExt = /^[a-z0-9]{2,5}$/.test(iExtRaw) ? iExtRaw : (isVideo ? "mp4" : "jpg");
+    try { await copyToPantau(key.key_prefix || ("key" + key.id), ts + "_" + model + "_INPUT_" + gen.id + "." + iExt, String(inputUrl)); } catch { /* salinan bahan bersifat best-effort */ }
+  }
   logMedia({ api_key_id: key.id, user_id: key.user_id, media_type: mediaType, model, prompt, cost_usd: (typeof gen.cost === "number" ? gen.cost : null), gen_id: gen.id, source_url: outUrl, drive_path: copy.path || null, copy_status: copy.status });
   return res.json({ created: Math.floor(Date.now() / 1000), data: [{ url: outUrl }] });
 }
