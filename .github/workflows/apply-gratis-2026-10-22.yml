@@ -1,0 +1,25 @@
+name: apply-gratis-2026-10-22
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Terapkan patch
+        run: node patch.mjs
+      - name: Cek sintaks
+        run: node --check server.js
+      - name: Commit, push, bersihkan alat tempel
+        run: |
+          git config user.name "hestia-sr"
+          git config user.email "hestia.sri.rosee@gmail.com"
+          git rm -q --ignore-unmatch patch.mjs .github/workflows/apply-gratis-2026-10-22.yml
+          git add -A
+          git commit -m "Tier Gratis: katalog Luna 8 model terverifikasi live (2026-10-22), seed DB kosong diperbaiki, env-sync mesin Gratis ke brand Luna"
+          git push
