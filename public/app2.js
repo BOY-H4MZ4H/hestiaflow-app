@@ -186,7 +186,7 @@ async function loadUser() {
       <div class="termbox" id="modelBox" style="max-height:160px;overflow-y:auto"><div class="term-line">Memuat model…</div></div>
     </div>
     <div class="section"><h2>Curl</h2>
-      <div class="termbox" style="overflow:auto"><pre id="curlExample" style="margin:0;white-space:pre;font-size:13px">curl https://hestiaflow.lovie.me/v1/chat/completions \
+      <div class="termbox" style="overflow:auto"><pre id="curlExample" style="margin:0;white-space:pre;font-size:13px">curl ${esc(SETTINGS.baseUrl || "")}/chat/completions \
   -H "Authorization: Bearer API_KEY_KAMU" \
   -H "Content-Type: application/json" \
   -d '{
@@ -198,7 +198,7 @@ async function loadUser() {
     </div>
     <div class="section"><h2>Curl Gambar</h2>
       <p class="muted" style="margin:0 0 8px">Khusus pengguna Premium (Stella). Dukung potrait: pakai "size": "1024x1536" dan model gemini-3-pro-image.</p>
-      <div class="termbox" style="overflow:auto"><pre id="curlImageExample" style="margin:0;white-space:pre;font-size:13px">curl https://hestiaflow.lovie.me/v1/images/generations \
+      <div class="termbox" style="overflow:auto"><pre id="curlImageExample" style="margin:0;white-space:pre;font-size:13px">curl ${esc(SETTINGS.baseUrl || "")}/images/generations \
   -H "Authorization: Bearer API_KEY_KAMU" \
   -H "Content-Type: application/json" \
   -d '{
