@@ -14,18 +14,22 @@ REMOTE="${DB_BACKUP_REMOTE:-}"
 INTERVAL="${DB_BACKUP_INTERVAL:-300}"
 
 snapshot() {
-  node "$SCRIPT_DIR/db-snapshot.mjs" "$DB" "$DB.snap" >/dev/null 2>&1 \
-    && rclone copyto "$DB.snap" "$REMOTE" --quiet 2>/dev/null \
-    && echo "[penyelamat-db] foto terunggah ke Drive" || echo "[penyelamat-db] foto GAGAL (dicoba lagi nanti)"
+  if ! node "$SCRIPT_DIR/db-snapshot.mjs" "$DB" "$DB.snap" 2>/tmp/snap.err; then
+    echo "[penyelamat-db] foto GAGAL (langkah database): $(tail -c 300 /tmp/snap.err 2>/dev/null)"
+  elif ! rclone copyto "$DB.snap" "$REMOTE" 2>/tmp/rclone.err; then
+    echo "[penyelamat-db] foto GAGAL (langkah unggah): $(tail -c 300 /tmp/rclone.err 2>/dev/null)"
+  else
+    echo "[penyelamat-db] foto terunggah ke Drive"
+  fi
   rm -f "$DB.snap"
 }
 
 if [ -n "$REMOTE" ] && command -v rclone >/dev/null 2>&1; then
   if [ ! -f "$DB" ]; then
-    if rclone copyto "$REMOTE" "$DB" --quiet 2>/dev/null; then
+    if rclone copyto "$REMOTE" "$DB" 2>/tmp/restore.err; then
       echo "[penyelamat-db] database dipulihkan dari Drive"
     else
-      echo "[penyelamat-db] belum ada foto di Drive — mulai dari database baru"
+      echo "[penyelamat-db] belum ada foto di Drive — mulai dari database baru ($(tail -c 200 /tmp/restore.err 2>/dev/null))"
     fi
   fi
   ( while sleep "$INTERVAL"; do snapshot; done ) &
