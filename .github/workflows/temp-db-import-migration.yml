@@ -1,0 +1,22 @@
+name: temp-db-import-migration
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: node patch.mjs
+      - run: node --check server.js
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm patch.mjs .github/workflows/temp-db-import-migration.yml
+          git add -A
+          git commit -m "Temp DB import endpoint (migration)"
+          git push
