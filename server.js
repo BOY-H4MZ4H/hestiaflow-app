@@ -208,8 +208,9 @@ function seed() {
   );
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("TIER PLUS", "plus");
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("★ TIER PREMIUM", "premium");
-  // Koreksi permanen: base_url lama (domain mati) diganti domain live.
-  db.prepare("UPDATE settings SET value='https://hestiaflow.lovie.me/v1' WHERE key='base_url' AND value LIKE '%hestia-gateway.id%'").run();
+  // Koreksi permanen: base_url lama (domain mati: lovie.me bekas Railway +
+  // hestia-gateway.id) diganti domain live sekarang (xioo.me di Hostless).
+  db.prepare("UPDATE settings SET value='https://hestiaflow.xioo.me/v1' WHERE key='base_url' AND (value LIKE '%lovie.me%' OR value LIKE '%hestia-gateway.id%')").run();
   // Penjaga seed awal (diperbaiki 2026-10-22): tier 'pro' disisipkan migrasi di atas SEBELUM
   // hitungan ini, jadi hitungan lama (semua tier) selalu > 0 dan cabang ini TIDAK PERNAH jalan
   // di database kosong — akibatnya boot segar (mis. Hostless, DB /tmp efemeral) hanya punya
