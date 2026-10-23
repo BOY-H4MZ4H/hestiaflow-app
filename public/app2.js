@@ -8,7 +8,6 @@ let adminTab = "user"; // 'user' | 'admin'
 let adminSection = "pengguna";
 let keyFilterUser = null;
 let adminCache = { users: [], keys: [], providers: [], workers: [], tiers: [], stats: {}, settings: {}, vouchers: [] };
-let deletePending = null;
 
 async function api(p, opts) {
   const r = await fetch(p, { headers: { "Content-Type": "application/json" }, ...(opts || {}) });
@@ -381,7 +380,7 @@ function renderAdminSections() {
         <div><b>${esc(u.name || "(tanpa nama)")}</b><br /><span class="muted">${esc(u.email)}</span><br /><span class="chip">${u.keyCount} kunci</span>${u.isAdmin ? `<span class="chip">Admin</span>` : ""}</div></div>
         <div style="margin-top:8px" onclick="event.stopPropagation()"><label style="font-size:12px">Paket: </label><select onchange="setUserTier(${u.id}, this.value)" onclick="event.stopPropagation()"><option value="gratis" ${u.tierSlug === "gratis" ? "selected" : ""}>Gratis</option><option value="plus" ${u.tierSlug === "plus" ? "selected" : ""}>Plus</option><option value="pro" ${u.tierSlug === "pro" ? "selected" : ""}>Pro</option><option value="premium" ${u.tierSlug === "premium" ? "selected" : ""}>Premium</option></select></div>
         <div style="margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();viewUserKeys(${u.id})">Lihat Kunci</button>
-        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();askDeleteUser(${u.id},'${esc(u.email)}')">Hapus Akun</button></div>
+        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();askDeleteUser(${u.id},this)">Hapus Akun</button></div>
         <div class="hint">Ketuk kartu untuk melihat kunci</div></div>`).join("") : `<p class="muted">Belum ada pengguna terdaftar.</p>`}</div></div>`;
   }
   if (adminSection === "kunci") {
@@ -458,14 +457,19 @@ function viewUserKeys(id) {
 }
 function clearKeyFilter() { keyFilterUser = null; renderAdminSections(); }
 async function setUserTier(id, slug) { try { await api(`/api/admin/users/${id}/tier`, { method: "POST", body: JSON.stringify({ tierSlug: slug }) }); } catch (e) { alert("Gagal set paket: " + e.message); } }
-function askDeleteUser(id, email) {
-  if (deletePending === id) {
-    deletePending = null;
-    api(`/api/admin/users/${id}`, { method: "DELETE" }).then(() => loadAdmin()).catch((e) => alert("Gagal: " + e.message));
-  } else {
-    deletePending = id;
-    if (!confirm(`Hapus akun ${email}? Klik Hapus Akun sekali lagi untuk konfirmasi.`)) deletePending = null;
+// Hapus pengguna: pola dua-ketuk yang sama kayak tombol hapus lain di app ini
+// (ketuk 1 = tombol bersenjata "Yakin Hapus?" selama 3 detik, ketuk 2 = eksekusi).
+// Pola lama (dialog confirm() + klik tombol sekali lagi) mati di browser HP /
+// WebView — dialog-nya gampang ke-suppress dan penghapusan tidak pernah jalan.
+function askDeleteUser(id, btn) {
+  if (!btn) return;
+  if (btn.dataset.armed === "1") {
+    btn.disabled = true; btn.textContent = "Menghapus…";
+    api(`/api/admin/users/${id}`, { method: "DELETE" }).then(() => loadAdmin()).catch((e) => { alert("Gagal hapus: " + e.message); btn.disabled = false; btn.textContent = "Hapus Akun"; btn.dataset.armed = ""; });
+    return;
   }
+  btn.dataset.armed = "1"; btn.textContent = "Yakin Hapus?";
+  setTimeout(() => { if (btn.dataset) { btn.dataset.armed = ""; btn.textContent = "Hapus Akun"; } }, 3000);
 }
 async function addTier() {
   const name = $("#newTierName").value.trim(); if (!name) return alert("Nama tier wajib diisi");
