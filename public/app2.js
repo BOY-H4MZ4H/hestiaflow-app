@@ -509,6 +509,8 @@ function apiSampleTexts() {
     chat: "curl " + B + "/chat/completions \\\n  -H \"Authorization: Bearer hgw-KEY-KAMU\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"model\":\"auto\",\"messages\":[{\"role\":\"user\",\"content\":\"Halo!\"}]}'",
     gambar: "curl " + B + "/images/generations \\\n  -H \"Authorization: Bearer hgw-KEY-MEDIA-KAMU\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"model\":\"flux-schnell\",\"prompt\":\"kucing oranye di taman bunga\"}'",
     video: "curl " + B + "/videos/generations \\\n  -H \"Authorization: Bearer hgw-KEY-MEDIA-KAMU\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"model\":\"seedance-1.5-pro\",\"prompt\":\"layangan di atas sawah hijau\",\"duration\":5}'",
+    paramGambar: "curl " + B + "/images/generations \\\n  -H \"Authorization: Bearer hgw-KEY-MEDIA-KAMU\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"model\":\"flux-schnell\",\"prompt\":\"kucing oranye di taman bunga\",\"size\":\"1024x1536\",\"seed\":42,\"negative_prompt\":\"buram, teks, watermark\"}'",
+    paramVideo: "curl " + B + "/videos/generations \\\n  -H \"Authorization: Bearer hgw-KEY-MEDIA-KAMU\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"model\":\"seedance-1.5-pro\",\"prompt\":\"layangan di atas sawah hijau\",\"duration\":5,\"num_frames\":120,\"fps\":24,\"seed\":7,\"negative_prompt\":\"goyang, buram\"}'",
     jsonChat: "{\n  \"id\": \"chatcmpl-...\",\n  \"object\": \"chat.completion\",\n  \"model\": \"auto\",\n  \"choices\": [{\n    \"message\": { \"role\": \"assistant\", \"content\": \"Halo! Ada yang bisa saya bantu?\" },\n    \"finish_reason\": \"stop\"\n  }],\n  \"usage\": { \"prompt_tokens\": 12, \"completion_tokens\": 9, \"total_tokens\": 21 }\n}",
     jsonMedia: "{\n  \"created\": 1792696805,\n  \"data\": [{ \"url\": \"https://.../hasil-generate.jpg\" }]\n}"
   };
@@ -526,9 +528,11 @@ function mountApiBubble() {
     ${block("cURL — Chat", "chat")}
     ${block("cURL — Buat Gambar (tier Media)", "gambar")}
     ${block("cURL — Buat Video (tier Media)", "video")}
+    ${block("cURL — Parameter Lengkap (Gambar)", "paramGambar")}
+    ${block("cURL — Parameter Lengkap (Video)", "paramVideo")}
     ${block("Hasil JSON — Chat", "jsonChat")}
     ${block("Hasil JSON — Gambar/Video", "jsonMedia")}
-    <p class="muted" style="margin:0;font-size:12px">Ganti hgw-KEY-KAMU dengan API key milikmu. Chat mendukung streaming (tambah "stream": true).</p>
+    <p class="muted" style="margin:0;font-size:12px">Ganti hgw-KEY-KAMU dengan API key milikmu. Chat mendukung streaming (tambah "stream": true).<br /><br /><b>Parameter media:</b> "size" = ukuran/rasio hasil (mis. 1024x1024, 1024x1536, 720p) • "seed" = angka kunci agar hasil bisa diulang persis • "num_frames"/"frames" = jumlah frame video • "fps" = frame per detik • "negative_prompt" = yang harus dihindari model (mis. buram, teks, watermark). Dukungan tiap parameter tergantung modelnya.</p>
   </div>
   <button id="apiBubbleBtn" title="Contoh cURL & JSON" style="width:56px;height:56px;border-radius:50%;border:2px solid #f3ead2;background:linear-gradient(135deg,#d4af37,#b8860b);color:#17140f;font-size:19px;font-weight:800;cursor:pointer;box-shadow:0 10px 26px rgba(0,0,0,.5)">&lt;/&gt;</button>`;
   document.body.appendChild(wrap);
