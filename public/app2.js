@@ -58,6 +58,7 @@ function tierShowcase() {
         <div class="brand"><div class="medal ${t.slug === "premium" ? "gold" : ""}">${esc(p.brand.slice(0, 1))}</div>
         <div><h3>${esc(p.brand)}</h3><p>${esc(p.tagline || "")}</p></div></div>
         <div><span class="chip">${p.modelCount} model</span><span class="chip">${esc(p.creditNote || "")}</span></div>
+        <div style="margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();showTierModels(${p.id})">🔍 Lihat Model</button></div>
       `).join("") || `<p class="muted">Belum ada provider di tier ini.</p>`}
     </div>`; }).join("")}</div></div>`;
 }
@@ -88,11 +89,13 @@ let BANSOS = { keys: [], limit: 2, locked: false, pool: null };
 let bansosTimer = null;
 function fmtID(n) { return Number(n || 0).toLocaleString("id-ID"); }
 function bansosSection() {
+  const bp = TIERS.flatMap((t) => t.providers || []).find((p) => /bansos/i.test(p.brand || ""));
   return `<div class="section" id="bansosSection"><div class="card tier bansos-card">
     <div class="tier-head"><span class="badge bansos">\uD83C\uDF81 BANSOS</span><div class="tier-price"><div class="price">GRATIS</div><div class="price-dur">Untuk Semua Pengguna</div></div></div>
     <div class="brand"><img class="bansos-logo" src="/logos/bansos.jpg" alt="Bansos" />
     <div><h3>Bansos Token 4.5 Juta</h3><p>Token AI gratis untuk semua pengguna, tanpa login. Buat API key kamu sendiri (maksimal 2 key) dan pakai di Base URL HestiaFlow. Kuota 4.5 juta token per hari dipakai bersama \u2014 habis hari ini, besok ngisi lagi.</p></div></div>
     <div><span class="chip">4 model pilihan</span><span class="chip">Tanpa login</span><span class="chip">Maks 2 API key</span></div>
+    ${bp ? `<div style="margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="showTierModels(${bp.id})">🔍 Lihat Model</button></div>` : ""}
     <div id="bansosSoon" style="display:none;text-align:center;font-weight:800;font-size:22px;letter-spacing:2px;color:#d4af37;border:2px dashed #d4af37;border-radius:12px;padding:10px;margin:10px 0">SEGERA HADIR</div>
     <div class="bansos-pool">
       <div class="bansos-pool-top"><span>Sisa token bansos hari ini</span><span class="bansos-pool-num" id="bansosRemain">Memuat\u2026</span></div>
@@ -268,6 +271,28 @@ function showComingSoon() {
 }
 
 function closeTierLocked() { const m = $("#tierLockModal"); if (m) m.style.display = "none"; }
+async function showTierModels(pid) {
+  let m = $("#modelListModal");
+  if (!m) {
+    m = document.createElement("div"); m.id = "modelListModal"; m.className = "tier-lock-modal";
+    m.innerHTML = `<div class="model-list-box"><div class="model-list-head"><h3 id="mlTitle">Model</h3><button class="btn btn-ghost btn-sm" onclick="closeTierModels()">✕ Tutup</button></div><p class="muted" id="mlSub"></p><div class="model-list-body" id="mlBody"><p class="muted">Memuat…</p></div></div>`;
+    m.addEventListener("click", (e) => { if (e.target === m) closeTierModels(); });
+    document.body.appendChild(m);
+  }
+  const item = TIERS.flatMap((t) => (t.providers || []).map((p) => ({ tier: t, p }))).find((x) => x.p.id === pid);
+  const notes = (item && item.p.modelNotes) || {};
+  $("#mlTitle").textContent = item ? `${item.p.brand} · Tier ${item.tier.name}` : "Daftar Model";
+  $("#mlSub").textContent = "Memuat daftar model…";
+  $("#mlBody").innerHTML = `<p class="muted">Memuat…</p>`;
+  m.style.display = "flex";
+  try {
+    const r = await api("/api/public/providers/" + pid + "/models");
+    const models = r.models || [];
+    $("#mlSub").textContent = `${r.modelCount != null ? r.modelCount : models.length} model tersedia di tier ini`;
+    $("#mlBody").innerHTML = models.length ? models.map((mm) => `<div class="model-row"><div class="model-name">${esc(mm)}</div>${notes[mm] ? `<div class="model-note">${esc(notes[mm])}</div>` : ""}</div>`).join("") : `<p class="muted">Model belum terdeteksi otomatis.</p>`;
+  } catch { $("#mlSub").textContent = ""; $("#mlBody").innerHTML = `<p class="muted">Gagal memuat model.</p>`; }
+}
+function closeTierModels() { const m = $("#modelListModal"); if (m) m.style.display = "none"; }
 function renderHarvestSidebar() {
   const el = $("#harvestProviderSidebar"); if (!el) return;
   const short = { gratis: "Gratis", plus: "Plus", pro: "Pro", premium: "Prem" };
