@@ -276,6 +276,44 @@ for (const [k, v] of Object.entries(process.env)) {
 
 // ---------- helpers ----------
 const app = express();
+// ---------- pelindung bot (2026-10-23, perintah Hestia: "biar gak ada bot yang masuk") ----------
+// Hostless tidak menyediakan firewall untuk aplikasi ini (sudah dicek di panel:
+// bagian Firewalls hanya untuk Virtual Machine), jadi perlindungan dipasang di kode:
+// header keamanan + pembatas kecepatan per IP di pintu masuk.
+app.disable("x-powered-by");
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("Referrer-Policy", "same-origin");
+  res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
+  next();
+});
+function clientIp(req) {
+  const xff = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  return xff || (req.socket && req.socket.remoteAddress) || "unknown";
+}
+function makeLimiter(maxPerMin, label) {
+  const buckets = new Map();
+  setInterval(() => { const now = Date.now(); for (const [k, b] of buckets) if (now > b.reset) buckets.delete(k); }, 60000).unref();
+  return (req, res, next) => {
+    const ip = clientIp(req);
+    const now = Date.now();
+    let b = buckets.get(ip);
+    if (!b || now > b.reset) { b = { count: 0, reset: now + 60000 }; buckets.set(ip, b); }
+    b.count++;
+    if (b.count > maxPerMin) {
+      console.log(`[antibot] ${label} kena limit: ${ip} ${req.method} ${req.path}`);
+      return res.status(429).json({ error: { message: "Terlalu banyak permintaan. Pelan-pelan ya, coba lagi sebentar.", type: "rate_limit_error", param: null, code: "ip_rate_limited" } });
+    }
+    next();
+  };
+}
+const limitPintuMasuk = makeLimiter(30, "pintu-masuk");
+const limitApiUmum = makeLimiter(600, "api-umum");
+app.use("/auth", limitPintuMasuk);
+app.post("/api/voucher/redeem", limitPintuMasuk);
+app.use("/api", limitApiUmum);
+
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -725,91 +763,117 @@ async function tryAutoRegisterRooyai(provider) {
 async function tryAutoRegisterZerolimit(provider) {
   const siteBase = "https://www.zerolimitai.com";
   const apiBase = siteBase + "/api/v1";
-  // Domain email untuk register ZeroLimitAI — DIPERBARUI 2026-10-23: minafter.com & byon.in
-  // kini DITOLAK ZeroLimit (400 code "disposable_email": "Please use a permanent email
-  // address...") sehingga panen Luna mati total (terbukti dari log lokal + panen live Hestia
-  // Live 0). Yang LOLOS terverifikasi live 2026-10-23 (register 201 TRIAL -> login -> key ->
-  // chat 200): @tempomail.id. Domain lain yang ikut dites & ditolak: tempmailo.com,
-  // fakemail.net, mailnesia.com, mohmal.com, getnada.com. Tanpa inbox — tidak ada verifikasi email.
+  // Domain email: tempomail.id (diperbarui 2026-10-23 — minafter.com & byon.in kini ditolak
+  // ZeroLimit 400 code "disposable_email"; tempomail.id lolos terverifikasi live hari yang sama).
+  // Anti-deteksi (aturan tetap Hestia 2026-10-23): seluruh sesi akun (register -> csrf ->
+  // login -> buat key) lewat SATU proxy yang sudah dicek hidup ke host tujuan (yang mati
+  // dibuang), User-Agent acak per akun, nama orang acak. Gagal jaringan di tengah jalan ->
+  // proxy berikutnya dengan kredensial segar; cadangan terakhir langsung.
   const ZL_FIRST = ["Budi","Agus","Joko","Bambang","Slamet","Rudi","Andi","Dedi","Sari","Dewi","Rina","Fitri","Indah","Putri","Maya","Sinta"];
   const ZL_LAST = ["Santoso","Wijaya","Pratama","Saputra","Hidayat","Nugroho","Rahmawati","Lestari","Putri","Sari","Utama","Perdana"];
-  const zlFirst = ZL_FIRST[Math.floor(Math.random() * ZL_FIRST.length)];
-  const zlLast = ZL_LAST[Math.floor(Math.random() * ZL_LAST.length)];
-  const zlDomain = "tempomail.id";
-  const tempEmail = `${zlFirst.toLowerCase()}${Math.floor(10000 + Math.random() * 89999)}${Date.now() % 100000}@${zlDomain}`;
-  const tempPassword = `${zlFirst}12345`;
-  const tempName = `${zlFirst} ${zlLast}`;
-  const jar = {};
-  const saveCookies = (res) => {
-    try {
-      const arr = (res.headers.getSetCookie ? res.headers.getSetCookie() : []);
-      for (const sc of arr) {
-        const pair = sc.split(";")[0];
-        const idx = pair.indexOf("=");
-        if (idx > 0) jar[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim();
-      }
-    } catch {}
-  };
-  const cookieHdr = () => Object.entries(jar).map(([k,v]) => k + "=" + v).join("; ");
+  let okProxies = [];
   try {
-    const rg = await fetch(siteBase + "/api/auth/register", {
-      method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "HestiaFlow/1.0" },
-      body: JSON.stringify({ name: tempName, email: tempEmail, password: tempPassword, referralCode: "0DBE08D4" })
-    });
-    saveCookies(rg);
-    const rj = await rg.json().catch(() => null);
-    // Masa aktif trial akun dari respons register (kalau provider menyertakannya, mis. field
-    // trial-end): disimpan sebagai expires_at akun panen supaya cleanup berkala bisa menghapus
-    // pas lewat waktunya (2026-10-22). Provider tidak menyertakan -> tetap null.
-    let regExpiresAt = null;
-    try {
-      const srcExp = [rj, rj && rj.user, rj && rj.data].filter(Boolean);
-      for (const s of srcExp) {
-        for (const k of Object.keys(s)) {
-          if (/trial|expir/i.test(k) && typeof s[k] === "string" && !isNaN(Date.parse(s[k]))) { regExpiresAt = new Date(s[k]).toISOString(); break; }
+    const raw = await fetchProxyList();
+    const cand = [...raw].sort(() => Math.random() - 0.5).slice(0, 40);
+    const cek = await Promise.all(cand.map(async (p) => {
+      const d = proxyDispatcher(p);
+      if (!d) return null;
+      try { const r = await fetch(siteBase + "/", { dispatcher: d, signal: AbortSignal.timeout(7000) }); return (r && r.status > 0) ? p : null; } catch { return null; }
+    }));
+    okProxies = cek.filter(Boolean).slice(0, 3);
+    if (okProxies.length) { _proxyCache = { list: okProxies, at: Date.now() }; }
+    console.log(`[zerolimit] proxy lolos cek: ${okProxies.length} dari ${cand.length} kandidat`);
+  } catch {}
+  const routes = [...okProxies.map((p) => ({ via: "proxy", host: p })), { via: "direct", host: null }];
+  for (const route of routes) {
+    const disp = route.host ? proxyDispatcher(route.host) : null;
+    if (route.host && !disp) continue;
+    const ua = randUA();
+    const zlFirst = ZL_FIRST[Math.floor(Math.random() * ZL_FIRST.length)];
+    const zlLast = ZL_LAST[Math.floor(Math.random() * ZL_LAST.length)];
+    const tempEmail = `${zlFirst.toLowerCase()}${Math.floor(10000 + Math.random() * 89999)}${Date.now() % 100000}@tempomail.id`;
+    const tempPassword = `${zlFirst}12345`;
+    const tempName = `${zlFirst} ${zlLast}`;
+    const jar = {};
+    const saveCookies = (res) => {
+      try {
+        const arr = (res.headers.getSetCookie ? res.headers.getSetCookie() : []);
+        for (const sc of arr) {
+          const pair = sc.split(";")[0];
+          const idx = pair.indexOf("=");
+          if (idx > 0) jar[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim();
         }
-        if (regExpiresAt) break;
-      }
-    } catch {}
-    // Bukti sukses = login + key di langkah berikutnya; respons register cukup status OK.
-    if (!rg.ok) { console.log("[zerolimit] register failed status=" + rg.status + " err=" + ((rj && (rj.code || rj.error)) || "?")); return null; }
-    const cr = await fetch(siteBase + "/api/auth/csrf", { headers: { "User-Agent": "HestiaFlow/1.0", "Cookie": cookieHdr() } });
-    saveCookies(cr);
-    const cj = await cr.json().catch(() => null);
-    const csrf = cj && cj.csrfToken;
-    if (!csrf) { console.log("[zerolimit] no csrf"); return null; }
-    const form = new URLSearchParams({ csrfToken: csrf, email: tempEmail, password: tempPassword, json: "true" });
-    const lg = await fetch(siteBase + "/api/auth/callback/credentials", {
-      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "HestiaFlow/1.0", "Cookie": cookieHdr() },
-      body: form.toString()
-    });
-    saveCookies(lg);
-    await lg.text().catch(() => "");
-    const kk = await fetch(siteBase + "/api/keys", {
-      method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "HestiaFlow/1.0", "Cookie": cookieHdr() },
-      body: JSON.stringify({ name: "HestiaFlow" })
-    });
-    const kj = await kk.json().catch(() => null);
-    const newKey = kj && kj.key;
-    if (!kk.ok || !newKey) { console.log("[zerolimit] key create failed"); return null; }
-    let verified = false;
+      } catch {}
+    };
+    const cookieHdr = () => Object.entries(jar).map(([k,v]) => k + "=" + v).join("; ");
+    const F = async (url, opts = {}, ms = 25000) => {
+      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), ms);
+      try { return await fetch(url, { ...opts, signal: ctl.signal, ...(disp ? { dispatcher: disp } : {}) }); }
+      finally { clearTimeout(t); }
+    };
     try {
-      const vr = await fetch(apiBase + "/models", { headers: { "Authorization": "Bearer " + newKey, "User-Agent": "HestiaFlow/1.0" } });
-      verified = vr.ok;
-    } catch {}
-    // Tes chat end-to-end (log saja, tidak menggagalkan panen): bukti key bisa dipakai chat beneran.
-    try {
-      const cr = await fetch(apiBase + "/chat/completions", {
-        method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + newKey, "User-Agent": "HestiaFlow/1.0" },
-        body: JSON.stringify({ model: "auto", messages: [{ role: "user", content: "hi" }], max_tokens: 5 })
+      const rg = await F(siteBase + "/api/auth/register", {
+        method: "POST", headers: { "Content-Type": "application/json", "User-Agent": ua },
+        body: JSON.stringify({ name: tempName, email: tempEmail, password: tempPassword, referralCode: "0DBE08D4" })
       });
+      saveCookies(rg);
+      const rj = await rg.json().catch(() => null);
+      // Masa aktif trial akun dari respons register (kalau provider menyertakannya): disimpan
+      // sebagai expires_at akun panen supaya cleanup berkala bisa menghapus pas lewat waktunya.
+      let regExpiresAt = null;
+      try {
+        const srcExp = [rj, rj && rj.user, rj && rj.data].filter(Boolean);
+        for (const s of srcExp) {
+          for (const k of Object.keys(s)) {
+            if (/trial|expir/i.test(k) && typeof s[k] === "string" && !isNaN(Date.parse(s[k]))) { regExpiresAt = new Date(s[k]).toISOString(); break; }
+          }
+          if (regExpiresAt) break;
+        }
+      } catch {}
+      // Bukti sukses = login + key di langkah berikutnya; respons register cukup status OK.
+      if (!rg.ok) { console.log("[zerolimit] register failed via=" + route.via + " status=" + rg.status + " err=" + ((rj && (rj.code || rj.error)) || "?")); return null; }
+      const cr = await F(siteBase + "/api/auth/csrf", { headers: { "User-Agent": ua, "Cookie": cookieHdr() } });
+      saveCookies(cr);
       const cj = await cr.json().catch(() => null);
-      const hasContent = !!(cj && cj.choices && cj.choices[0] && cj.choices[0].message && cj.choices[0].message.content);
-      console.log(`[zerolimit] chat-test status=${cr.status} ok=${cr.ok} hasContent=${hasContent}`);
-    } catch (e) { console.log("[zerolimit] chat-test exception", e && e.message); }
-    console.log(`[zerolimit] auto-register ok, verified=${verified}`);
-    return { upstreamApiKey: newKey, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: verified, expiresAt: regExpiresAt };
-  } catch (e) { console.log("[zerolimit] exception", e && e.message); return null; }
+      const csrf = cj && cj.csrfToken;
+      if (!csrf) { console.log("[zerolimit] no csrf"); return null; }
+      const form = new URLSearchParams({ csrfToken: csrf, email: tempEmail, password: tempPassword, json: "true" });
+      const lg = await F(siteBase + "/api/auth/callback/credentials", {
+        method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": ua, "Cookie": cookieHdr() },
+        body: form.toString()
+      });
+      saveCookies(lg);
+      await lg.text().catch(() => "");
+      const kk = await F(siteBase + "/api/keys", {
+        method: "POST", headers: { "Content-Type": "application/json", "User-Agent": ua, "Cookie": cookieHdr() },
+        body: JSON.stringify({ name: zlFirst })
+      });
+      const kj = await kk.json().catch(() => null);
+      const newKey = kj && kj.key;
+      if (!kk.ok || !newKey) { console.log("[zerolimit] key create failed"); return null; }
+      let verified = false;
+      try {
+        const vr = await F(apiBase + "/models", { headers: { "Authorization": "Bearer " + newKey, "User-Agent": ua } });
+        verified = vr.ok;
+      } catch {}
+      // Tes chat end-to-end (log saja, tidak menggagalkan panen): bukti key bisa dipakai chat beneran.
+      try {
+        const cr2 = await F(apiBase + "/chat/completions", {
+          method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + newKey, "User-Agent": ua },
+          body: JSON.stringify({ model: "auto", messages: [{ role: "user", content: "hi" }], max_tokens: 5 })
+        });
+        const cj2 = await cr2.json().catch(() => null);
+        const hasContent = !!(cj2 && cj2.choices && cj2.choices[0] && cj2.choices[0].message && cj2.choices[0].message.content);
+        console.log(`[zerolimit] chat-test status=${cr2.status} ok=${cr2.ok} hasContent=${hasContent}`);
+      } catch (e) { console.log("[zerolimit] chat-test exception", e && e.message); }
+      console.log(`[zerolimit] auto-register ok via=${route.via}, verified=${verified}`);
+      return { upstreamApiKey: newKey, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: verified, expiresAt: regExpiresAt };
+    } catch (e) {
+      console.log(`[zerolimit] route ${route.via} gagal jaringan (${e && e.message ? String(e.message).slice(0, 60) : "?"}), coba jalur berikutnya`);
+      continue;
+    }
+  }
+  return null;
 }
 
 async function tryAutoRegisterBestllm(provider) {
@@ -839,27 +903,57 @@ async function tryAutoRegisterBestllm(provider) {
 
 async function tryAutoRegisterNearresearch(provider) {
   // Near Research (2026-10-18): POST /api/signup {email,password} -> {key, balance:0.25}. Tanpa verifikasi, tanpa captcha.
+  // Anti-deteksi (aturan tetap Hestia 2026-10-23): signup lewat proxy yang sudah dicek hidup
+  // ke host tujuan (yang mati dibuang) + User-Agent acak per akun; cadangan terakhir langsung.
   const siteBase = "https://nearresearch.com";
   const apiBase = siteBase + "/v1";
-  const tempEmail = `near${Date.now()}${Math.floor(Math.random()*9999)}@tempomail.id`;
-  const tempPassword = `Near${Math.floor(100000+Math.random()*900000)}@#`;
+  let okProxies = [];
   try {
-    const r = await fetch(siteBase + "/api/signup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "User-Agent": "HestiaFlow/1.0" },
-      body: JSON.stringify({ email: tempEmail, password: tempPassword })
-    });
-    const j = await r.json().catch(() => null);
-    const newKey = j && j.key;
-    if (!r.ok || !newKey) { console.log("[nearresearch] signup failed"); return null; }
-    let verified = false;
+    const raw = await fetchProxyList();
+    const cand = [...raw].sort(() => Math.random() - 0.5).slice(0, 40);
+    const cek = await Promise.all(cand.map(async (p) => {
+      const d = proxyDispatcher(p);
+      if (!d) return null;
+      try { const r = await fetch(siteBase + "/", { dispatcher: d, signal: AbortSignal.timeout(7000) }); return (r && r.status > 0) ? p : null; } catch { return null; }
+    }));
+    okProxies = cek.filter(Boolean).slice(0, 3);
+    if (okProxies.length) { _proxyCache = { list: okProxies, at: Date.now() }; }
+    console.log(`[nearresearch] proxy lolos cek: ${okProxies.length} dari ${cand.length} kandidat`);
+  } catch {}
+  const routes = [...okProxies.map((p) => ({ via: "proxy", host: p })), { via: "direct", host: null }];
+  for (const route of routes) {
+    const disp = route.host ? proxyDispatcher(route.host) : null;
+    if (route.host && !disp) continue;
+    const ua = randUA();
+    const tempEmail = `near${Date.now()}${Math.floor(Math.random()*9999)}@tempomail.id`;
+    const tempPassword = `Near${Math.floor(100000+Math.random()*900000)}@#`;
+    const F = async (url, opts = {}, ms = 25000) => {
+      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), ms);
+      try { return await fetch(url, { ...opts, signal: ctl.signal, ...(disp ? { dispatcher: disp } : {}) }); }
+      finally { clearTimeout(t); }
+    };
     try {
-      const vr = await fetch(apiBase + "/models", { headers: { "Authorization": "Bearer " + newKey, "User-Agent": "HestiaFlow/1.0" } });
-      verified = vr.ok;
-    } catch {}
-    console.log(`[nearresearch] auto-register ok, verified=${verified}, balance=${j.balance}`);
-    return { upstreamApiKey: newKey, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: verified };
-  } catch (e) { console.log("[nearresearch] exception", e && e.message); return null; }
+      const r = await F(siteBase + "/api/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "User-Agent": ua },
+        body: JSON.stringify({ email: tempEmail, password: tempPassword })
+      });
+      const j = await r.json().catch(() => null);
+      const newKey = j && j.key;
+      if (!r.ok || !newKey) { console.log(`[nearresearch] signup failed via=${route.via} status=${r.status}`); return null; }
+      let verified = false;
+      try {
+        const vr = await F(apiBase + "/models", { headers: { "Authorization": "Bearer " + newKey, "User-Agent": ua } });
+        verified = vr.ok;
+      } catch {}
+      console.log(`[nearresearch] auto-register ok via=${route.via}, verified=${verified}, balance=${j.balance}`);
+      return { upstreamApiKey: newKey, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: verified };
+    } catch (e) {
+      console.log(`[nearresearch] route ${route.via} gagal jaringan, coba jalur berikutnya`);
+      continue;
+    }
+  }
+  return null;
 }
 
 // Auto-register a real provider account (server-side, no admin config).
