@@ -1366,11 +1366,10 @@ async function doHarvest({ userId, providerId, count }) {
   if (!provider) throw new Error("provider_not_found");
   if (!Number.isInteger(count) || count < 1 || count > 5000) throw new Error("count_must_be_1_to_5000");
   const tier = db.prepare("SELECT * FROM tiers WHERE id=?").get(provider.tier_id);
-  // Pro DIKUNCI sementara (2026-10-18): provider OpenToke mati (verifikasi gak masuk, API error).
-  if (tier && tier.slug === "pro") throw new Error("Tier Pro sedang dalam perbaikan. Coba lagi nanti.");
-  // Plus DIBUKA 2026-10-23 (perintah Hestia): Aurora/RooyAI terbukti bisa dipanen server
-  // (register API -> Supabase -> key; tes Sr 1 akun + chat 200). Premium tetap "Segera Hadir".
-  if (tier && tier.slug === "premium") throw new Error("Segera Hadir!");
+  // Pro + Premium DIBUKA 2026-10-24 (perintah Hestia): gembok blanket dicabut.
+  // Akses panen diatur gerbang pangkat di bawah — hanya user yang paketnya
+  // (dari vocher/admin) mencakup tier ini yang bisa panen. Pro kini bermesin
+  // Vega; Premium bermesin Stella (keduanya live).
   // Kunci tier: user tidak bisa panen tier di atas paketnya (admin userId=null = bebas).
   if (userId != null && tier && TIER_RANK[tier.slug] != null) {
     const u = db.prepare("SELECT COALESCE(tier_slug,'gratis') AS tier_slug,tier_expires_at FROM users WHERE id=?").get(userId);
@@ -1864,14 +1863,9 @@ function gatewayAuth(req) {
   if (!key) return null;
   // Cek kadaluarsa per-key (Gratis: 2 hari dari panen).
   if (key.expires_at && new Date(key.expires_at) < new Date()) key._expired = true;
-  // Pro DIBUKA lagi 2026-10-24: tier Pro diisi provider Vega (kunci blanket
-  // 2026-10-18 dicabut — mesin lama yang mati sudah diganti). Premium tetap ditandai.
-  if (key.tier_id) {
-    try {
-      const t = db.prepare("SELECT slug FROM tiers WHERE id=?").get(key.tier_id);
-      if (t && t.slug === "premium") key._coming_soon = true;
-    } catch {}
-  }
+  // Pro + Premium DIBUKA 2026-10-24 (perintah Hestia): tidak ada lagi kunci
+  // blanket di gateway — key tier berbayar yang sah (dipanen user berpangkat
+  // paket cukup / dari vocher) langsung bisa dipakai.
   // Cek masa Gratis TOTAL (2 hari dari panen pertama) — 2026-10-18. Abis 2 hari, key mati total.
   if (!key._expired && key.user_id && key.tier_id) {
     const tier = db.prepare("SELECT slug FROM tiers WHERE id=?").get(key.tier_id);
