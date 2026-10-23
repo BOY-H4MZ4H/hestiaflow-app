@@ -550,7 +550,7 @@ function mountApiBubble() {
   wrap.style.cssText = "position:fixed;right:16px;bottom:16px;z-index:9999;display:flex;flex-direction:column;align-items:flex-end;gap:10px";
   const block = (label, key) => `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><b style="font-size:13px;color:#d4af37">${label}</b><button class="btn btn-ghost btn-sm" data-copy="${key}">Salin</button></div><pre style="margin:0;background:#0d0b08;border:1px solid #3a3226;border-radius:10px;padding:10px;font-size:11px;line-height:1.5;overflow-x:auto;white-space:pre;color:#f3ead2">${esc(S[key])}</pre></div>`;
   wrap.innerHTML = `
-  <div id="apiPanel" style="display:none;width:min(92vw,400px);max-height:72vh;overflow-y:auto;background:#17140f;border:1px solid #d4af37;border-radius:16px;padding:14px;color:#f3ead2;box-shadow:0 18px 50px rgba(0,0,0,.55)">
+  <div id="apiPanel" style="display:none;width:min(92vw,400px);max-height:72vh;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;background:#17140f;border:1px solid #d4af37;border-radius:16px;padding:14px;color:#f3ead2;box-shadow:0 18px 50px rgba(0,0,0,.55)">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><b style="font-size:15px">Contoh Pakai API</b><button id="apiPanelClose" class="btn btn-ghost btn-sm" style="color:#f3ead2">✕</button></div>
     ${block("cURL — Chat", "chat")}
     ${block("cURL — Buat Gambar (tier Media)", "gambar")}
@@ -562,8 +562,20 @@ function mountApiBubble() {
   <button id="apiBubbleBtn" title="Contoh cURL & JSON" style="width:56px;height:56px;border-radius:50%;border:2px solid #f3ead2;background:linear-gradient(135deg,#d4af37,#b8860b);color:#17140f;font-size:19px;font-weight:800;cursor:pointer;box-shadow:0 10px 26px rgba(0,0,0,.5)">&lt;/&gt;</button>`;
   document.body.appendChild(wrap);
   const panel = wrap.querySelector("#apiPanel");
-  wrap.querySelector("#apiBubbleBtn").addEventListener("click", () => { panel.style.display = panel.style.display === "none" ? "block" : "none"; });
-  wrap.querySelector("#apiPanelClose").addEventListener("click", () => { panel.style.display = "none"; });
+  // Lapisan penutup full-layar: menangkep semua sentuhan di luar panel agar layar
+  // di baliknya tidak ikut ketekan/kegeser (laporan Hestia 2026-10-23); tap di sini menutup panel.
+  const backdrop = document.createElement("div");
+  backdrop.id = "apiBackdrop";
+  backdrop.style.cssText = "display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998";
+  document.body.appendChild(backdrop);
+  const setApiPanel = (open) => {
+    panel.style.display = open ? "block" : "none";
+    backdrop.style.display = open ? "block" : "none";
+    document.body.style.overflow = open ? "hidden" : "";
+  };
+  backdrop.addEventListener("click", () => setApiPanel(false));
+  wrap.querySelector("#apiBubbleBtn").addEventListener("click", () => setApiPanel(panel.style.display === "none"));
+  wrap.querySelector("#apiPanelClose").addEventListener("click", () => setApiPanel(false));
   wrap.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", () => copyText(S[b.getAttribute("data-copy")], b)));
 }
 const _renderApiBubble = render;
