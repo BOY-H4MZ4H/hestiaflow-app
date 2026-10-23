@@ -1421,9 +1421,15 @@ app.post("/api/admin/users/:id/tier", requireAdmin, (req, res) => {
 });
 app.delete("/api/admin/users/:id", requireAdmin, (req, res) => {
   if (Number(req.params.id) === req.user.id) return res.status(400).json({ ok: false, error: "cannot_delete_self" });
-  db.prepare("DELETE FROM api_keys WHERE user_id=?").run(req.params.id);
+  // URUTAN WAJIB anak -> induk: node:sqlite menegakkan FOREIGN KEY secara
+  // default, jadi api_keys TIDAK boleh dihapus sebelum harvested_accounts
+  // yang menunjuknya bersih — kalau terbalik, server melempar
+  // "FOREIGN KEY constraint failed" (HTTP 500). Terbukti live 2026-10-24:
+  // hapus pengguna yang punya kunci panen selalu gagal 500.
   db.prepare("DELETE FROM harvested_accounts WHERE user_id=?").run(req.params.id);
+  db.prepare("DELETE FROM media_logs WHERE user_id=?").run(req.params.id);
   db.prepare("DELETE FROM harvest_logs WHERE user_id=?").run(req.params.id);
+  db.prepare("DELETE FROM api_keys WHERE user_id=?").run(req.params.id);
   db.prepare("DELETE FROM users WHERE id=?").run(req.params.id);
   res.json({ ok: true });
 });
@@ -1485,8 +1491,10 @@ app.put("/api/admin/providers/:id", requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 app.delete("/api/admin/providers/:id", requireAdmin, (req, res) => {
-  db.prepare("DELETE FROM api_keys WHERE provider_id=?").run(req.params.id);
+  // Urutan anak -> induk juga di sini (FK aktif): harvested_accounts yang
+  // menunjuk api_keys harus bersih dulu, baru keys, workers, terakhir provider.
   db.prepare("DELETE FROM harvested_accounts WHERE provider_id=?").run(req.params.id);
+  db.prepare("DELETE FROM api_keys WHERE provider_id=?").run(req.params.id);
   db.prepare("DELETE FROM workers WHERE provider_id=?").run(req.params.id);
   db.prepare("DELETE FROM providers WHERE id=?").run(req.params.id);
   res.json({ ok: true });
