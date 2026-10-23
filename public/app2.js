@@ -390,7 +390,8 @@ function renderAdminSections() {
       ${keyFilterUser ? `<div class="banner-filter">Filter: kunci milik <b>${esc(keyFilterUser)}</b> <button class="btn btn-ghost btn-sm" onclick="clearKeyFilter()">Tampilkan semua</button></div>` : ""}
       <div class="grid">${keys.map((k) => `<div class="card"><span class="chip">${esc(k.providerBrand || "")}</span><span class="chip">${esc(k.tierSlug || "")}</span>
         <p class="kv">Pemilik: <b>${esc(k.ownerEmail || "(pool)")}</b> · Prefix: ${esc(k.keyPrefix)} · Credit: ${k.credit != null ? esc(k.credit) : "Tidak dinyatakan"}</p>
-        <div>${(k.models || []).slice(0, 8).map((m) => `<span class="chip model">${esc(m)}</span>`).join("")}${(k.models || []).length > 8 ? `<span class="chip">+${k.models.length - 8} lagi</span>` : ""}</div></div>`).join("") || `<p class="muted">Belum ada kunci.</p>`}</div></div>`;
+        <div>${(k.models || []).slice(0, 8).map((m) => `<span class="chip model">${esc(m)}</span>`).join("")}${(k.models || []).length > 8 ? `<span class="chip">+${k.models.length - 8} lagi</span>` : ""}</div>
+        <div style="margin-top:8px"><button class="btn btn-danger btn-sm" onclick="askDeleteKeyAdmin(${k.id},this)">Hapus Key</button></div></div>`).join("") || `<p class="muted">Belum ada kunci.</p>`}</div></div>`;
   }
   if (adminSection === "provider") {
     html = `<div id="sec-provider"><h3>Provider & Tier</h3>
@@ -482,6 +483,16 @@ function askSuspendUser(id, btn, currently) {
   }
   btn.dataset.armed = "1"; btn.textContent = currently ? "Yakin Aktifkan?" : "Yakin Suspend?";
   setTimeout(() => { if (btn.dataset) { btn.dataset.armed = ""; btn.textContent = label; } }, 3000);
+}
+function askDeleteKeyAdmin(id, btn) {
+  if (!btn) return;
+  if (btn.dataset.armed === "1") {
+    btn.disabled = true; btn.textContent = "Menghapus…";
+    api(`/api/admin/keys/${id}`, { method: "DELETE" }).then(() => loadAdmin()).catch((e) => { alert("Gagal hapus key: " + e.message); btn.disabled = false; btn.textContent = "Hapus Key"; btn.dataset.armed = ""; });
+    return;
+  }
+  btn.dataset.armed = "1"; btn.textContent = "Yakin Hapus?";
+  setTimeout(() => { if (btn.dataset) { btn.dataset.armed = ""; btn.textContent = "Hapus Key"; } }, 3000);
 }
 async function addTier() {
   const name = $("#newTierName").value.trim(); if (!name) return alert("Nama tier wajib diisi");
