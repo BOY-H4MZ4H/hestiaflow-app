@@ -94,6 +94,7 @@ function bansosSection() {
     <div class="brand"><img class="bansos-logo" src="/logos/bansos.jpg" alt="Bansos" />
     <div><h3>Bansos Token 4.5 Juta</h3><p>Token AI gratis untuk semua pengguna, tanpa login. Buat API key kamu sendiri (maksimal 2 key) dan pakai di Base URL HestiaFlow. Kuota 4.5 juta token per hari dipakai bersama \u2014 habis hari ini, besok ngisi lagi.</p></div></div>
     <div><span class="chip">4 model pilihan</span><span class="chip">Tanpa login</span><span class="chip">Maks 2 API key</span></div>
+    <div id="bansosSoon" style="display:none;text-align:center;font-weight:800;font-size:22px;letter-spacing:2px;color:#d4af37;border:2px dashed #d4af37;border-radius:12px;padding:10px;margin:10px 0">SEGERA HADIR</div>
     <div class="bansos-pool">
       <div class="bansos-pool-top"><span>Sisa token bansos hari ini</span><span class="bansos-pool-num" id="bansosRemain">Memuat\u2026</span></div>
       <div class="bansos-bar"><div class="bansos-bar-fill" id="bansosBarFill"></div></div>
@@ -126,6 +127,16 @@ function renderBansos() {
     if (BANSOS.locked) { btn.disabled = true; btn.textContent = "\uD83D\uDD12 Sudah 2 API Key"; }
     else { btn.disabled = false; btn.textContent = "Buat API Key"; }
   }
+  // Gembok Bansos (env BANSOS_ENABLED=0): tampilkan papan SEGERA HADIR, sembunyikan key & tombol.
+  const soon = $("#bansosSoon");
+  if (BANSOS.pool && BANSOS.pool.enabled === false) {
+    if (soon) soon.style.display = "block";
+    if (rem) rem.textContent = "Segera Hadir";
+    if (fill) fill.style.width = "0%";
+    if (sub) sub.textContent = "Bansos sedang digembok \u2014 segera hadir kembali.";
+    if (box) box.innerHTML = "";
+    if (btn) { btn.disabled = true; btn.textContent = "\uD83D\uDD12 Segera Hadir"; }
+  } else if (soon) soon.style.display = "none";
 }
 async function loadBansos() {
   if (!$("#bansosSection")) return;
