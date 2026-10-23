@@ -3,7 +3,7 @@
 const $ = (s, r) => (r || document).querySelector(s);
 const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-let ME = null, TIERS = [], SETTINGS = { gatewayName: "HestiaFlow", baseUrl: "https://api.hestia-gateway.id/v1" }, POOL = { workers: 0, ready: false };
+let ME = null, TIERS = [], SETTINGS = { gatewayName: "HestiaFlow", baseUrl: "https://hestiaflow.xioo.me/v1" }, POOL = { workers: 0, ready: false };
 let adminTab = "user"; // 'user' | 'admin'
 let adminSection = "pengguna";
 let keyFilterUser = null;
@@ -26,7 +26,7 @@ async function load() {
   try { const pub = await api("/api/public/tiers"); TIERS = pub.tiers || []; } catch {}
   try { const st = await api("/api/public/settings"); SETTINGS = st; } catch {}
   try { const pool = await api("/api/public/pool"); POOL = pool; } catch {}
-  const fb = $("#footBase"); if (fb) fb.textContent = SETTINGS.baseUrl || "https://api.hestia-gateway.id/v1";
+  const fb = $("#footBase"); if (fb) fb.textContent = SETTINGS.baseUrl || "https://hestiaflow.xioo.me/v1";
   renderAuth();
   render();
   loadBansos();
