@@ -80,7 +80,7 @@ function render() {
     loadAdmin();
     return;
   }
-  app.innerHTML = hero + `<div id="userRoot"><p class="muted">Memuat Halaman Pengguna…</p></div>` + tierShowcase() + bansosSection() + voucherSection();
+  app.innerHTML = hero + (ME.suspended ? `<div class="notice" style="margin-bottom:12px"><strong>Akun kamu sedang disuspend oleh admin.</strong> Semua API key kamu dinonaktifkan sementara dan kamu tidak bisa panen kunci baru. Hubungi admin untuk mengaktifkan lagi.</div>` : "") + `<div id="userRoot"><p class="muted">Memuat Halaman Pengguna…</p></div>` + tierShowcase() + bansosSection() + voucherSection();
   loadUser();
 }
 
@@ -377,9 +377,10 @@ function renderAdminSections() {
       <div class="grid">${adminCache.users.length ? adminCache.users.map((u) => `
       <div class="card usercard" role="button" tabindex="0" onclick="viewUserKeys(${u.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();viewUserKeys(${u.id})}">
         <div style="display:flex;gap:10px;align-items:center">${u.avatar ? `<img src="${esc(u.avatar)}" style="width:40px;height:40px;border-radius:50%" />` : `<div style="width:40px;height:40px;border-radius:50%;background:var(--plum);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800">${esc((u.name || u.email || "?").slice(0, 1).toUpperCase())}</div>`}
-        <div><b>${esc(u.name || "(tanpa nama)")}</b><br /><span class="muted">${esc(u.email)}</span><br /><span class="chip">${u.keyCount} kunci</span>${u.isAdmin ? `<span class="chip">Admin</span>` : ""}</div></div>
+        <div><b>${esc(u.name || "(tanpa nama)")}</b><br /><span class="muted">${esc(u.email)}</span><br /><span class="chip">${u.keyCount} kunci</span>${u.isAdmin ? `<span class="chip">Admin</span>` : ""}${u.suspended ? `<span class="chip" style="background:#7f1d1d;color:#fff">DISUSPEND</span>` : ""}<br /><span class="muted" style="font-size:12px">${u.lastIp ? `IP: ${esc(u.lastIp)}${u.device ? " · " + esc(u.device) : ""}${u.lastLoginAt ? " · login terakhir " + esc(String(u.lastLoginAt).slice(0, 16)) + " UTC" : ""}` : "IP/perangkat belum tercatat — ketahuan pas dia login lagi"}</span></div></div>
         <div style="margin-top:8px" onclick="event.stopPropagation()"><label style="font-size:12px">Paket: </label><select onchange="setUserTier(${u.id}, this.value)" onclick="event.stopPropagation()"><option value="gratis" ${u.tierSlug === "gratis" ? "selected" : ""}>Gratis</option><option value="plus" ${u.tierSlug === "plus" ? "selected" : ""}>Plus</option><option value="pro" ${u.tierSlug === "pro" ? "selected" : ""}>Pro</option><option value="premium" ${u.tierSlug === "premium" ? "selected" : ""}>Premium</option></select></div>
         <div style="margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();viewUserKeys(${u.id})">Lihat Kunci</button>
+        ${u.isAdmin ? "" : `<button class="btn btn-ghost btn-sm" style="color:#b45309;border-color:#b45309" onclick="event.stopPropagation();askSuspendUser(${u.id},this,${u.suspended ? 1 : 0})">${u.suspended ? "Aktifkan" : "Suspend"}</button>`}
         <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();askDeleteUser(${u.id},this)">Hapus Akun</button></div>
         <div class="hint">Ketuk kartu untuk melihat kunci</div></div>`).join("") : `<p class="muted">Belum ada pengguna terdaftar.</p>`}</div></div>`;
   }
@@ -470,6 +471,17 @@ function askDeleteUser(id, btn) {
   }
   btn.dataset.armed = "1"; btn.textContent = "Yakin Hapus?";
   setTimeout(() => { if (btn.dataset) { btn.dataset.armed = ""; btn.textContent = "Hapus Akun"; } }, 3000);
+}
+function askSuspendUser(id, btn, currently) {
+  if (!btn) return;
+  const label = currently ? "Aktifkan" : "Suspend";
+  if (btn.dataset.armed === "1") {
+    btn.disabled = true; btn.textContent = "Memproses…";
+    api(`/api/admin/users/${id}/suspend`, { method: "POST", body: JSON.stringify({ suspended: currently ? false : true }) }).then(() => loadAdmin()).catch((e) => { alert("Gagal: " + e.message); btn.disabled = false; btn.textContent = label; btn.dataset.armed = ""; });
+    return;
+  }
+  btn.dataset.armed = "1"; btn.textContent = currently ? "Yakin Aktifkan?" : "Yakin Suspend?";
+  setTimeout(() => { if (btn.dataset) { btn.dataset.armed = ""; btn.textContent = label; } }, 3000);
 }
 async function addTier() {
   const name = $("#newTierName").value.trim(); if (!name) return alert("Nama tier wajib diisi");
