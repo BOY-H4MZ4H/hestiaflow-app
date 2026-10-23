@@ -534,25 +534,65 @@ function mountApiBubble() {
     ${block("Hasil JSON — Gambar/Video", "jsonMedia")}
     <p class="muted" style="margin:0;font-size:12px">Ganti hgw-KEY-KAMU dengan API key milikmu. Chat mendukung streaming (tambah "stream": true).<br /><br /><b>Parameter media:</b> "size" = ukuran/rasio hasil (mis. 1024x1024, 1024x1536, 720p) • "seed" = angka kunci agar hasil bisa diulang persis • "num_frames"/"frames" = jumlah frame video • "fps" = frame per detik • "negative_prompt" = yang harus dihindari model (mis. buram, teks, watermark). Dukungan tiap parameter tergantung modelnya.</p>
   </div>
+  <div id="creditPanel" style="display:none;width:min(92vw,340px);max-height:72vh;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;background:#17140f;border:1px solid #d4af37;border-radius:16px;padding:14px;color:#f3ead2;box-shadow:0 18px 50px rgba(0,0,0,.55)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b style="font-size:15px">Credit / Token Saya</b><button id="creditPanelClose" class="btn btn-ghost btn-sm" style="color:#f3ead2">✕</button></div>
+    <div id="creditBody"><p class="muted" style="margin:0;font-size:13px">Memuat credit kamu…</p></div>
+  </div>
+  <button id="creditBubbleBtn" title="Credit / Token Saya" style="width:56px;height:56px;border-radius:50%;border:2px solid #f3ead2;background:linear-gradient(135deg,#d4af37,#b8860b);color:#17140f;font-size:23px;cursor:pointer;box-shadow:0 10px 26px rgba(0,0,0,.5)">🪙</button>
   <button id="apiBubbleBtn" title="Contoh cURL & JSON" style="width:56px;height:56px;border-radius:50%;border:2px solid #f3ead2;background:linear-gradient(135deg,#d4af37,#b8860b);color:#17140f;font-size:19px;font-weight:800;cursor:pointer;box-shadow:0 10px 26px rgba(0,0,0,.5)">&lt;/&gt;</button>`;
   document.body.appendChild(wrap);
   const panel = wrap.querySelector("#apiPanel");
+  const creditPanel = wrap.querySelector("#creditPanel");
   // Lapisan penutup full-layar: menangkep semua sentuhan di luar panel agar layar
   // di baliknya tidak ikut ketekan/kegeser (laporan Hestia 2026-10-23); tap di sini menutup panel.
   const backdrop = document.createElement("div");
   backdrop.id = "apiBackdrop";
   backdrop.style.cssText = "display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;touch-action:none;overscroll-behavior:none";
   document.body.appendChild(backdrop);
-  const setApiPanel = (open) => {
-    panel.style.display = open ? "block" : "none";
+  const applyChrome = () => {
+    const open = panel.style.display !== "none" || creditPanel.style.display !== "none";
     backdrop.style.display = open ? "block" : "none";
     // Kunci scroll di html + body: sebagian browser HP mengabaikan kunci di body saja.
     document.body.style.overflow = open ? "hidden" : "";
     document.documentElement.style.overflow = open ? "hidden" : "";
   };
-  backdrop.addEventListener("click", () => setApiPanel(false));
+  const setApiPanel = (open) => {
+    panel.style.display = open ? "block" : "none";
+    if (open) creditPanel.style.display = "none";
+    applyChrome();
+  };
+  // ---- Panel Credit / Token (perintah Hestia 2026-10-23 malam): tombol bubble bulat
+  // di atas tombol cURL -> panel jumlah credit pengguna per tier (dari /api/my-keys). ----
+  const fmtCredit = (n) => Number(n || 0).toLocaleString("id-ID");
+  const loadCreditPanel = async () => {
+    const body = wrap.querySelector("#creditBody");
+    body.innerHTML = `<p class="muted" style="margin:0;font-size:13px">Memuat credit kamu…</p>`;
+    let keys = null;
+    try { const j = await api("/api/my-keys"); keys = j.keys || []; } catch {}
+    if (!keys) { body.innerHTML = `<p style="margin:0;font-size:13px">Masuk dulu pakai akun Google buat lihat credit kamu.</p>`; return; }
+    const tiers = [["gratis", "Gratis"], ["plus", "Plus"], ["pro", "Pro"], ["premium", "Premium"], ["media", "Media"]];
+    let total = 0, rows = "";
+    for (const [slug, label] of tiers) {
+      const ks = keys.filter((k) => k.tierSlug === slug);
+      let val;
+      if (!ks.length) val = `<span class="muted">Belum ada</span>`;
+      else if (slug === "media") val = `Tanpa kuota <span class="muted">(${ks.length} key)</span>`;
+      else if (ks.every((k) => k.credit == null)) val = `${ks.length} key aktif` + (slug === "gratis" ? ` <span class="muted">(100 panggilan/hari)</span>` : "");
+      else { const sum = ks.reduce((a, k) => a + (k.credit || 0), 0); total += sum; val = `${fmtCredit(sum)} <span class="muted">(${ks.length} key)</span>`; }
+      rows += `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(212,175,55,.18)"><b style="font-size:13px;color:#d4af37">Tier ${label}</b><span style="font-size:13px;font-weight:700">${val}</span></div>`;
+    }
+    body.innerHTML = rows + (total > 0 ? `<div style="display:flex;justify-content:space-between;align-items:center;padding-top:10px"><b style="font-size:13px">Total Credit</b><span style="font-size:14px;font-weight:800;color:#d4af37">${fmtCredit(total)}</span></div>` : "") + `<p class="muted" style="margin:10px 0 0;font-size:12px">Credit dihitung dari akun yang masih hidup di tiap key. Angka dimuat ulang tiap panel dibuka.</p>`;
+  };
+  const setCreditPanel = (open) => {
+    creditPanel.style.display = open ? "block" : "none";
+    if (open) { panel.style.display = "none"; loadCreditPanel(); }
+    applyChrome();
+  };
+  backdrop.addEventListener("click", () => { setApiPanel(false); setCreditPanel(false); });
   wrap.querySelector("#apiBubbleBtn").addEventListener("click", () => setApiPanel(panel.style.display === "none"));
   wrap.querySelector("#apiPanelClose").addEventListener("click", () => setApiPanel(false));
+  wrap.querySelector("#creditBubbleBtn").addEventListener("click", () => setCreditPanel(creditPanel.style.display === "none"));
+  wrap.querySelector("#creditPanelClose").addEventListener("click", () => setCreditPanel(false));
   wrap.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", () => copyText(S[b.getAttribute("data-copy")], b)));
 }
 const _renderApiBubble = render;
