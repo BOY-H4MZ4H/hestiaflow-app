@@ -46,7 +46,13 @@ CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 `);
 
 // ---------- seed ----------
-const AURORA_MODELS = ["deepseek-v3.1","deepseek-v3.2","deepseek-v4-flash","deepseek-v4-pro","gemma-4-31b-it","gemma-4-31B-it","google/gemini-3-flash-preview","google/gemini-3.1-flash-lite","google/gemini-embedding-001","gpt-4o-mini","gpt-oss-120b","llama-3.3-70b-versatile","mimo-v2.5","mimo-v2.5-pro","minimax-m2.7","moonshotai.kimi-k2.5","moonshotai/kimi-k2.6","nano-banana-2","nano-banana-2-lite","nano-banana-pro","omni-flash","qwen3.8-max","S1-Base-Pro","veo-3.1-fast","veo-3.1-lite","veo-3.1-quality","whisper-large-v3","whisper-large-v3-turbo","xai/grok-imagine-image","rooyai-image"];
+// Katalog Aurora dipangkas 2026-10-23 (sweep Termux Hestia + retest Sr): HANYA 10 model
+// CHAT yang terbukti menjawab. Model gambar/video TIDAK dimasukkan (aturan Hestia:
+// gambar & video terpisah di kartu Tier Media; "rooyai-image" tidak dimasukkan di mana pun).
+// Yang gugur: deepseek-v4-pro, kimi-k2.6, qwen3.8-max, omni-flash, mimo*, llama-3.3,
+// S1-Base-Pro, gemma-4-31b-it huruf kecil (semua 503 not available), embedding/whisper
+// (bukan chat), nano-banana*/veo*/rooyai-image/grok-imagine (gambar/video -> Tier Media).
+const AURORA_MODELS = ["deepseek-v3.1","deepseek-v3.2","deepseek-v4-flash","gemma-4-31B-it","google/gemini-3-flash-preview","google/gemini-3.1-flash-lite","gpt-4o-mini","gpt-oss-120b","minimax-m2.7","moonshotai.kimi-k2.5"];
 function seed() {
   // Migrasi: tabel vouchers + users.tier_expires_at (masa berlaku paket dari vocher).
   db.prepare("CREATE TABLE IF NOT EXISTS vouchers (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE, tier_slug TEXT, duration_days INTEGER, used INTEGER DEFAULT 0, used_by INTEGER, used_at TEXT, created_at TEXT DEFAULT (datetime('now')))").run();
@@ -115,8 +121,9 @@ function seed() {
   // REVERT 2026-10-18: Luna balik ke AI4ALL (2 model, Always-free BETA). Public AI dibatalkan (operator takut komplain pembeli).
   db.prepare("UPDATE providers SET model_count=?, model_list_json=?, model_notes_json=?, credit_note=?, default_credit=? WHERE brand_name=?").run(2, JSON.stringify(["qwen3-coder:30b","llama3.2:3b"]), JSON.stringify({"qwen3-coder:30b":"Muncul di website provider. Chat terverifikasi jalan.","llama3.2:3b":"Terdaftar di /v1/models. Tes chat gagal (service_unavailable)."}), "Always-free BETA", null, "Luna");
   // Migrasi 2026-10-18: Aurora GANTI jadi RooyAI (brand tetap "Aurora", provider di baliknya RooyAI).
-  // 30 model (terverifikasi via /v1/models + chat). $0.20 per akun. Auto-register via Supabase (no verifikasi).
-  db.prepare("UPDATE providers SET model_count=?, model_list_json=?, model_notes_json=?, credit_note=?, default_credit=? WHERE brand_name=?").run(30, JSON.stringify(AURORA_MODELS), JSON.stringify({}), "$0.20 per akun terverifikasi.", 200000, "Aurora");
+  // 10 model chat terbukti (pangkasan 2026-10-23; dulu 30 dari /v1/models — banyak yang
+  // ternyata 503 / bukan chat / gambar-video). $0.20 per akun. Auto-register via Supabase.
+  db.prepare("UPDATE providers SET model_count=?, model_list_json=?, model_notes_json=?, credit_note=?, default_credit=? WHERE brand_name=?").run(10, JSON.stringify(AURORA_MODELS), JSON.stringify({}), "$0.20 per akun terverifikasi.", 200000, "Aurora");
   // Migrasi 2026-10-18: Luna GANTI jadi Zerolimit (ZeroLimitAI + bestllmapi.com) untuk tier Gratis.
   // 6 model (5 ZeroLimitAI :free + 1 bestllmapi.com "uncensored"). 100 calls/hari, 7 hari per akun. Auto-register full otomatis (no verifikasi email).
   db.prepare("UPDATE providers SET brand_name=?, tagline=?, model_count=?, model_list_json=?, model_notes_json=?, credit_note=?, default_credit=?, upstream_url=? WHERE brand_name IN ('Luna','Zerolimit')").run(
@@ -222,7 +229,7 @@ function seed() {
     JSON.stringify(ZEROLIMIT_MODELS),
     JSON.stringify(ZEROLIMIT_NOTES),
     "100 calls/hari per akun.", null, 1);
-  if (!provAda("Aurora")) insProv.run(p, "Aurora", "Cahaya pertama di gerbang kecerdasan.", 30,
+  if (!provAda("Aurora")) insProv.run(p, "Aurora", "Cahaya pertama di gerbang kecerdasan.", 10,
     JSON.stringify(AURORA_MODELS), JSON.stringify({}),
     "$0.20 per akun terverifikasi.", 200000, 1);
   if (!provAda("Stella")) insProv.run(pr, "Stella", "Bintang paling terang di langit HestiaFlow.", 514,
