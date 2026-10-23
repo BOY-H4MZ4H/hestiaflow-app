@@ -935,7 +935,9 @@ async function doHarvest({ userId, providerId, count }) {
   const tier = db.prepare("SELECT * FROM tiers WHERE id=?").get(provider.tier_id);
   // Pro DIKUNCI sementara (2026-10-18): provider OpenToke mati (verifikasi gak masuk, API error).
   if (tier && tier.slug === "pro") throw new Error("Tier Pro sedang dalam perbaikan. Coba lagi nanti.");
-  if (tier && (tier.slug === "plus" || tier.slug === "premium")) throw new Error("Segera Hadir!");
+  // Plus DIBUKA 2026-10-23 (perintah Hestia): Aurora/RooyAI terbukti bisa dipanen server
+  // (register API -> Supabase -> key; tes Sr 1 akun + chat 200). Premium tetap "Segera Hadir".
+  if (tier && tier.slug === "premium") throw new Error("Segera Hadir!");
   // Kunci tier: user tidak bisa panen tier di atas paketnya (admin userId=null = bebas).
   if (userId != null && tier && TIER_RANK[tier.slug] != null) {
     const u = db.prepare("SELECT COALESCE(tier_slug,'gratis') AS tier_slug,tier_expires_at FROM users WHERE id=?").get(userId);
@@ -1403,7 +1405,7 @@ function gatewayAuth(req) {
     try {
       const t = db.prepare("SELECT slug FROM tiers WHERE id=?").get(key.tier_id);
       if (t && t.slug === "pro") key._pro_locked = true;
-      if (t && (t.slug === "plus" || t.slug === "premium")) key._coming_soon = true;
+      if (t && t.slug === "premium") key._coming_soon = true; // Plus dibuka 2026-10-23 (Aurora live)
     } catch {}
   }
   // Cek masa Gratis TOTAL (2 hari dari panen pertama) — 2026-10-18. Abis 2 hari, key mati total.
