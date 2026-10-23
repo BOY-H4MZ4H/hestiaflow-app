@@ -683,14 +683,17 @@ async function tryAutoRegisterRooyai(provider) {
 async function tryAutoRegisterZerolimit(provider) {
   const siteBase = "https://www.zerolimitai.com";
   const apiBase = siteBase + "/api/v1";
-  // Domain email WAJIB yang lolos filter disposable ZeroLimitAI (terverifikasi live 2026-10-20/21
-  // dari script operator: @minafter.com & @byon.in LOLOS; @maildrop.cc ditolak; domain temp-mail
-  // publik seperti @tempomail.id rawan ditolak diam-diam). Tanpa inbox — ZeroLimitAI tidak verifikasi email.
+  // Domain email untuk register ZeroLimitAI — DIPERBARUI 2026-10-23: minafter.com & byon.in
+  // kini DITOLAK ZeroLimit (400 code "disposable_email": "Please use a permanent email
+  // address...") sehingga panen Luna mati total (terbukti dari log lokal + panen live Hestia
+  // Live 0). Yang LOLOS terverifikasi live 2026-10-23 (register 201 TRIAL -> login -> key ->
+  // chat 200): @tempomail.id. Domain lain yang ikut dites & ditolak: tempmailo.com,
+  // fakemail.net, mailnesia.com, mohmal.com, getnada.com. Tanpa inbox — tidak ada verifikasi email.
   const ZL_FIRST = ["Budi","Agus","Joko","Bambang","Slamet","Rudi","Andi","Dedi","Sari","Dewi","Rina","Fitri","Indah","Putri","Maya","Sinta"];
   const ZL_LAST = ["Santoso","Wijaya","Pratama","Saputra","Hidayat","Nugroho","Rahmawati","Lestari","Putri","Sari","Utama","Perdana"];
   const zlFirst = ZL_FIRST[Math.floor(Math.random() * ZL_FIRST.length)];
   const zlLast = ZL_LAST[Math.floor(Math.random() * ZL_LAST.length)];
-  const zlDomain = ["minafter.com", "byon.in"][Math.floor(Math.random() * 2)];
+  const zlDomain = "tempomail.id";
   const tempEmail = `${zlFirst.toLowerCase()}${Math.floor(10000 + Math.random() * 89999)}${Date.now() % 100000}@${zlDomain}`;
   const tempPassword = `${zlFirst}12345`;
   const tempName = `${zlFirst} ${zlLast}`;
@@ -727,7 +730,7 @@ async function tryAutoRegisterZerolimit(provider) {
       }
     } catch {}
     // Bukti sukses = login + key di langkah berikutnya; respons register cukup status OK.
-    if (!rg.ok) { console.log("[zerolimit] register failed status=" + rg.status); return null; }
+    if (!rg.ok) { console.log("[zerolimit] register failed status=" + rg.status + " err=" + ((rj && (rj.code || rj.error)) || "?")); return null; }
     const cr = await fetch(siteBase + "/api/auth/csrf", { headers: { "User-Agent": "HestiaFlow/1.0", "Cookie": cookieHdr() } });
     saveCookies(cr);
     const cj = await cr.json().catch(() => null);
