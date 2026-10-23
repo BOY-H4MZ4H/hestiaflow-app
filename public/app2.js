@@ -289,7 +289,26 @@ async function showTierModels(pid) {
     const r = await api("/api/public/providers/" + pid + "/models");
     const models = r.models || [];
     $("#mlSub").textContent = `${r.modelCount != null ? r.modelCount : models.length} model tersedia di tier ini`;
-    $("#mlBody").innerHTML = models.length ? models.map((mm) => `<div class="model-row"><div class="model-name">${esc(mm)}</div>${notes[mm] ? `<div class="model-note">${esc(notes[mm])}</div>` : ""}</div>`).join("") : `<p class="muted">Model belum terdeteksi otomatis.</p>`;
+    const FAMLABEL = { "openai": "OpenAI · GPT", "anthropic": "Anthropic · Claude", "google": "Google · Gemini & Gemma", "deepseek": "DeepSeek", "x-ai": "xAI · Grok", "z-ai": "Zhipu · GLM", "qwen": "Qwen", "moonshotai": "Moonshot · Kimi", "meta-llama": "Meta · Llama", "mistralai": "Mistral", "minimax": "MiniMax" };
+    const FAMORDER = Object.keys(FAMLABEL);
+    const grup = new Map();
+    for (const mm of models) {
+      const v = mm.includes("/") ? mm.split("/")[0] : "lainnya";
+      if (!grup.has(v)) grup.set(v, []);
+      grup.get(v).push(mm);
+    }
+    const urut = [...grup.keys()].sort((a, b) => {
+      const ia = FAMORDER.indexOf(a), ib = FAMORDER.indexOf(b);
+      if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+      return a.localeCompare(b);
+    });
+    const perluGrup = urut.length > 1;
+    $("#mlBody").innerHTML = models.length ? urut.map((v) => {
+      const label = FAMLABEL[v] || (v === "lainnya" ? "Lainnya" : v);
+      const head = perluGrup ? `<div class="model-group-head">${esc(label)} · ${grup.get(v).length}</div>` : "";
+      const rows = [...grup.get(v)].sort().map((mm) => `<div class="model-row"><div class="model-name">${esc(mm)}</div>${notes[mm] ? `<div class="model-note">${esc(notes[mm])}</div>` : ""}</div>`).join("");
+      return head + rows;
+    }).join("") : `<p class="muted">Model belum terdeteksi otomatis.</p>`;
   } catch { $("#mlSub").textContent = ""; $("#mlBody").innerHTML = `<p class="muted">Gagal memuat model.</p>`; }
 }
 function closeTierModels() { const m = $("#modelListModal"); if (m) m.style.display = "none"; }
