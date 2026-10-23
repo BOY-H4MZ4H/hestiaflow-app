@@ -196,29 +196,7 @@ async function loadUser() {
     <div class="section"><h2>Model</h2>
       <div class="termbox" id="modelBox" style="max-height:160px;overflow-y:auto"><div class="term-line">Memuat model…</div></div>
     </div>
-    <div class="section"><h2>Curl</h2>
-      <div class="termbox" style="overflow:auto"><pre id="curlExample" style="margin:0;white-space:pre;font-size:13px">curl ${esc(SETTINGS.baseUrl || "")}/chat/completions \
-  -H "Authorization: Bearer API_KEY_KAMU" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "qwen3-coder:30b",
-    "messages": [{"role": "user", "content": "Halo Saya Hestia Kamu siapa?"}],
-    "stream": false
-  }'</pre></div>
-      <div style="margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="copyCurlExample(this)">Salin</button></div>
-    </div>
-    <div class="section"><h2>Curl Gambar</h2>
-      <p class="muted" style="margin:0 0 8px">Khusus pengguna Premium (Stella). Dukung potrait: pakai "size": "1024x1536" dan model gemini-3-pro-image.</p>
-      <div class="termbox" style="overflow:auto"><pre id="curlImageExample" style="margin:0;white-space:pre;font-size:13px">curl ${esc(SETTINGS.baseUrl || "")}/images/generations \
-  -H "Authorization: Bearer API_KEY_KAMU" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gemini-3-pro-image",
-    "prompt": "wanita anggun bergaun merah di taman bunga",
-    "size": "1024x1536"
-  }'</pre></div>
-      <div style="margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="copyImageCurlExample(this)">Salin</button></div>
-    </div>`;
+`;
   renderHarvestSidebar();
   updateModelBox();
   } catch (e) { $("#userRoot").innerHTML = `<p class="muted">Gagal memuat: ${esc(e.message)}</p>`; }
@@ -226,14 +204,7 @@ async function loadUser() {
 function keyBoxAll(keys) {
   return `<div class="keybox" style="margin-bottom:12px"><div class="lbl">API key HestiaFlow</div><div class="key-list-scroll">${keys.map((k) => `<div class="key-row"><span class="key-row-tag">${esc(k.tierSlug || "")} · ${esc(k.providerBrand || "")} · Credit: ${k.credit != null ? esc(k.credit) : "Tidak dinyatakan"}</span><span class="key-row-val">${esc(k.key)}</span><div style="display:flex;gap:6px;margin-top:4px"><button class="btn btn-ghost btn-sm" onclick="copyText('${esc(k.key)}',this)">Salin Key</button><button class="btn btn-ghost btn-sm" style="color:#b91c1c" onclick="deleteMyKey(${k.id},this)">Hapus</button></div></div>`).join("")}</div></div>`;
 }
-function copyCurlExample(btn) {
-  const el = document.getElementById("curlExample");
-  if (el) copyText(el.textContent, btn);
-}
-function copyImageCurlExample(btn) {
-  const el = document.getElementById("curlImageExample");
-  if (el) copyText(el.textContent, btn);
-}
+
 let lastHarvestKeys = [];
 function copyAllHarvestKeys(btn) {
   const liveKeys = (lastHarvestKeys || []).filter((k) => k.live).map((k) => k.key).filter(Boolean);
@@ -566,12 +537,14 @@ function mountApiBubble() {
   // di baliknya tidak ikut ketekan/kegeser (laporan Hestia 2026-10-23); tap di sini menutup panel.
   const backdrop = document.createElement("div");
   backdrop.id = "apiBackdrop";
-  backdrop.style.cssText = "display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998";
+  backdrop.style.cssText = "display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;touch-action:none;overscroll-behavior:none";
   document.body.appendChild(backdrop);
   const setApiPanel = (open) => {
     panel.style.display = open ? "block" : "none";
     backdrop.style.display = open ? "block" : "none";
+    // Kunci scroll di html + body: sebagian browser HP mengabaikan kunci di body saja.
     document.body.style.overflow = open ? "hidden" : "";
+    document.documentElement.style.overflow = open ? "hidden" : "";
   };
   backdrop.addEventListener("click", () => setApiPanel(false));
   wrap.querySelector("#apiBubbleBtn").addEventListener("click", () => setApiPanel(panel.style.display === "none"));
