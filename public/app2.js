@@ -530,4 +530,43 @@ async function saveSettings() {
   alert("Pengaturan disimpan.");
   load();
 }
+// ---- Bubble info API (perintah Hestia 2026-10-23): tombol bulat di tepi layar ->
+// panel contoh cURL + hasil JSON. Nempel di body agar tidak ikut ter-render ulang. ----
+function apiSampleTexts() {
+  const B = location.origin + "/v1";
+  return {
+    chat: "curl " + B + "/chat/completions \\\n  -H \"Authorization: Bearer hgw-KEY-KAMU\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"model\":\"auto\",\"messages\":[{\"role\":\"user\",\"content\":\"Halo!\"}]}'",
+    gambar: "curl " + B + "/images/generations \\\n  -H \"Authorization: Bearer hgw-KEY-MEDIA-KAMU\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"model\":\"flux-schnell\",\"prompt\":\"kucing oranye di taman bunga\"}'",
+    video: "curl " + B + "/videos/generations \\\n  -H \"Authorization: Bearer hgw-KEY-MEDIA-KAMU\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"model\":\"seedance-1.5-pro\",\"prompt\":\"layangan di atas sawah hijau\",\"duration\":5}'",
+    jsonChat: "{\n  \"id\": \"chatcmpl-...\",\n  \"object\": \"chat.completion\",\n  \"model\": \"auto\",\n  \"choices\": [{\n    \"message\": { \"role\": \"assistant\", \"content\": \"Halo! Ada yang bisa saya bantu?\" },\n    \"finish_reason\": \"stop\"\n  }],\n  \"usage\": { \"prompt_tokens\": 12, \"completion_tokens\": 9, \"total_tokens\": 21 }\n}",
+    jsonMedia: "{\n  \"created\": 1792696805,\n  \"data\": [{ \"url\": \"https://.../hasil-generate.jpg\" }]\n}"
+  };
+}
+function mountApiBubble() {
+  if (document.getElementById("apiBubbleBtn")) return;
+  if (!document.body) return;
+  const S = apiSampleTexts();
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "position:fixed;right:16px;bottom:16px;z-index:9999;display:flex;flex-direction:column;align-items:flex-end;gap:10px";
+  const block = (label, key) => `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><b style="font-size:13px;color:#d4af37">${label}</b><button class="btn btn-ghost btn-sm" data-copy="${key}">Salin</button></div><pre style="margin:0;background:#0d0b08;border:1px solid #3a3226;border-radius:10px;padding:10px;font-size:11px;line-height:1.5;overflow-x:auto;white-space:pre;color:#f3ead2">${esc(S[key])}</pre></div>`;
+  wrap.innerHTML = `
+  <div id="apiPanel" style="display:none;width:min(92vw,400px);max-height:72vh;overflow-y:auto;background:#17140f;border:1px solid #d4af37;border-radius:16px;padding:14px;color:#f3ead2;box-shadow:0 18px 50px rgba(0,0,0,.55)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><b style="font-size:15px">Contoh Pakai API</b><button id="apiPanelClose" class="btn btn-ghost btn-sm" style="color:#f3ead2">✕</button></div>
+    ${block("cURL — Chat", "chat")}
+    ${block("cURL — Buat Gambar (tier Media)", "gambar")}
+    ${block("cURL — Buat Video (tier Media)", "video")}
+    ${block("Hasil JSON — Chat", "jsonChat")}
+    ${block("Hasil JSON — Gambar/Video", "jsonMedia")}
+    <p class="muted" style="margin:0;font-size:12px">Ganti hgw-KEY-KAMU dengan API key milikmu. Chat mendukung streaming (tambah "stream": true).</p>
+  </div>
+  <button id="apiBubbleBtn" title="Contoh cURL & JSON" style="width:56px;height:56px;border-radius:50%;border:2px solid #f3ead2;background:linear-gradient(135deg,#d4af37,#b8860b);color:#17140f;font-size:19px;font-weight:800;cursor:pointer;box-shadow:0 10px 26px rgba(0,0,0,.5)">&lt;/&gt;</button>`;
+  document.body.appendChild(wrap);
+  const panel = wrap.querySelector("#apiPanel");
+  wrap.querySelector("#apiBubbleBtn").addEventListener("click", () => { panel.style.display = panel.style.display === "none" ? "block" : "none"; });
+  wrap.querySelector("#apiPanelClose").addEventListener("click", () => { panel.style.display = "none"; });
+  wrap.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", () => copyText(S[b.getAttribute("data-copy")], b)));
+}
+const _renderApiBubble = render;
+render = function () { _renderApiBubble(); mountApiBubble(); };
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mountApiBubble); else mountApiBubble();
 load();
