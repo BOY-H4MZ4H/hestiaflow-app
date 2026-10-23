@@ -570,18 +570,27 @@ function mountApiBubble() {
     let keys = null;
     try { const j = await api("/api/my-keys"); keys = j.keys || []; } catch {}
     if (!keys) { body.innerHTML = `<p style="margin:0;font-size:13px">Masuk dulu pakai akun Google buat lihat credit kamu.</p>`; return; }
+    // Satuan asli tiap tier (dari catatan provider kita sendiri; perintah Hestia
+    // 2026-10-23: "yang pake credit buat Credit, yang pake token buat Token"):
+    // Plus/Aurora = credit dolar (tersimpan sbg mikro-dolar: 200.000 = $0.20/akun);
+    // Pro/Nova = token (283.000/akun); Premium/Stella = token (30.000/hari per akun);
+    // Gratis = key aktif + panggilan/hari; Media = tanpa kuota.
+    const UNITS = { gratis: "keys", plus: "usd", pro: "token", premium: "token", media: "noquota" };
     const tiers = [["gratis", "Gratis"], ["plus", "Plus"], ["pro", "Pro"], ["premium", "Premium"], ["media", "Media"]];
-    let total = 0, rows = "";
+    let totalToken = 0, totalUsd = 0, rows = "";
     for (const [slug, label] of tiers) {
       const ks = keys.filter((k) => k.tierSlug === slug);
+      const unit = UNITS[slug];
       let val;
       if (!ks.length) val = `<span class="muted">Belum ada</span>`;
-      else if (slug === "media") val = `Tanpa kuota <span class="muted">(${ks.length} key)</span>`;
-      else if (ks.every((k) => k.credit == null)) val = `${ks.length} key aktif` + (slug === "gratis" ? ` <span class="muted">(100 panggilan/hari)</span>` : "");
-      else { const sum = ks.reduce((a, k) => a + (k.credit || 0), 0); total += sum; val = `${fmtCredit(sum)} <span class="muted">(${ks.length} key)</span>`; }
+      else if (unit === "noquota") val = `Tanpa kuota <span class="muted">(${ks.length} key)</span>`;
+      else if (unit === "keys") val = `${ks.length} key aktif <span class="muted">(100 panggilan/hari)</span>`;
+      else if (unit === "token") { const sum = ks.reduce((a, k) => a + (k.credit || 0), 0); totalToken += sum; val = `${fmtCredit(sum)} token <span class="muted">(${ks.length} key)</span>`; }
+      else { const sum = ks.reduce((a, k) => a + (k.credit || 0), 0); totalUsd += sum / 1000000; val = `$${(sum / 1000000).toFixed(2)} <span class="muted">(${ks.length} key)</span>`; }
       rows += `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(212,175,55,.18)"><b style="font-size:13px;color:#d4af37">Tier ${label}</b><span style="font-size:13px;font-weight:700">${val}</span></div>`;
     }
-    body.innerHTML = rows + (total > 0 ? `<div style="display:flex;justify-content:space-between;align-items:center;padding-top:10px"><b style="font-size:13px">Total Credit</b><span style="font-size:14px;font-weight:800;color:#d4af37">${fmtCredit(total)}</span></div>` : "") + `<p class="muted" style="margin:10px 0 0;font-size:12px">Credit dihitung dari akun yang masih hidup di tiap key. Angka dimuat ulang tiap panel dibuka.</p>`;
+    const summary = `<div style="background:#0d0b08;border:1px solid #3a3226;border-radius:10px;padding:10px 12px;margin-bottom:6px;font-size:14px;line-height:1.9"><div style="display:flex;justify-content:space-between"><span class="muted">Token</span><b>${fmtCredit(totalToken)}</b></div><div style="display:flex;justify-content:space-between"><span class="muted">Credit</span><b style="color:#d4af37">$${totalUsd.toFixed(2)}</b></div></div>`;
+    body.innerHTML = summary + rows + `<p class="muted" style="margin:10px 0 0;font-size:12px">Token & credit dihitung dari akun yang masih hidup di tiap key. Angka dimuat ulang tiap panel dibuka.</p>`;
   };
   const setCreditPanel = (open) => {
     creditPanel.style.display = open ? "block" : "none";
