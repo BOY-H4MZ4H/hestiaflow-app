@@ -48,8 +48,8 @@ const TIER_PRICE = { plus: { amount: "Rp 5.000", dur: "3 Hari" }, pro: { amount:
 function tierShowcase() {
   return `<div class="section"><h2>Pilihan Paket Tier</h2>
   <div class="grid tiers">${TIERS.map((t) => {
-    const isLockedCard = t.slug === "pro" || t.slug === "premium"; // Plus dibuka 2026-10-23
-    const cardClick = isLockedCard ? (t.slug === "pro" ? "showTierLocked()" : "showComingSoon()") : "";
+    const isLockedCard = t.slug === "premium"; // Plus dibuka 2026-10-23; Pro dibuka 2026-10-24 (Vega)
+    const cardClick = isLockedCard ? "showComingSoon()" : "";
     return `
     <div class="card tier ${t.slug === "premium" ? "premium" : ""}${isLockedCard ? " locked-card" : ""}" ${isLockedCard ? `onclick="${cardClick}" style="cursor:pointer;position:relative;"` : ""}>
       ${isLockedCard ? `<div class="card-lock-overlay">🔒</div>` : ""}
@@ -291,9 +291,24 @@ async function showTierModels(pid) {
     $("#mlSub").textContent = `${r.modelCount != null ? r.modelCount : models.length} model tersedia di tier ini`;
     const FAMLABEL = { "openai": "OpenAI · GPT", "anthropic": "Anthropic · Claude", "google": "Google · Gemini & Gemma", "deepseek": "DeepSeek", "x-ai": "xAI · Grok", "z-ai": "Zhipu · GLM", "qwen": "Qwen", "moonshotai": "Moonshot · Kimi", "meta-llama": "Meta · Llama", "mistralai": "Mistral", "minimax": "MiniMax" };
     const FAMORDER = Object.keys(FAMLABEL);
+    const famNama = (id) => {
+      const s0 = id.startsWith("cf.") ? id.slice(3) : id;
+      if (s0.startsWith("gpt-") || s0.startsWith("gpt-oss")) return "openai";
+      if (s0.startsWith("claude-")) return "anthropic";
+      if (s0.startsWith("gemini-") || s0.startsWith("gemma-")) return "google";
+      if (s0.startsWith("deepseek-")) return "deepseek";
+      if (s0.startsWith("grok-")) return "x-ai";
+      if (s0.startsWith("glm-")) return "z-ai";
+      if (s0.startsWith("qwen") || s0.startsWith("qwq")) return "qwen";
+      if (s0.startsWith("kimi-")) return "moonshotai";
+      if (s0.startsWith("llama-")) return "meta-llama";
+      if (s0.startsWith("mistral-")) return "mistralai";
+      if (s0.startsWith("minimax-")) return "minimax";
+      return "lainnya";
+    };
     const grup = new Map();
     for (const mm of models) {
-      const v = mm.includes("/") ? mm.split("/")[0] : "lainnya";
+      const v = mm.includes("/") ? mm.split("/")[0] : famNama(mm);
       if (!grup.has(v)) grup.set(v, []);
       grup.get(v).push(mm);
     }
@@ -320,8 +335,8 @@ function renderHarvestSidebar() {
   if (!items.length) { el.innerHTML = `<p class="muted">Belum ada provider.</p>`; return; }
   const myRank = TIER_RANK[(ME && ME.tier_slug) || "gratis"] ?? 0;
   const selItem = items.find((x) => x.p.id === selectedHarvestProviderId);
-  if (!selectedHarvestProviderId || !selItem || (TIER_RANK[selItem.tier.slug] ?? 0) > myRank || selItem.tier.slug === "pro") selectedHarvestProviderId = (items.find((x) => (TIER_RANK[x.tier.slug] ?? 0) <= myRank && x.tier.slug !== "pro") || items.find((x) => x.tier.slug !== "pro") || items[0]).p.id;
-  el.innerHTML = items.map((x) => { const locked = (TIER_RANK[x.tier.slug] ?? 0) > myRank || x.tier.slug === "pro"; const comingSoon = x.tier.slug === "premium"; const isLocked = locked || comingSoon; const clickFn = x.tier.slug === "pro" ? "showTierLocked()" : (comingSoon ? "showComingSoon()" : `selectHarvestProvider(${x.p.id})`); return `<div class="tier-side-opt${x.p.id === selectedHarvestProviderId ? " sel" : ""}${isLocked ? " locked" : ""}" data-pid="${x.p.id}" onclick="${clickFn}">${isLocked ? "🔒 " : ""}${esc(short[x.tier.slug] || x.tier.name)} • ${x.p.modelCount} Model</div>`; }).join("");
+  if (!selectedHarvestProviderId || !selItem || (TIER_RANK[selItem.tier.slug] ?? 0) > myRank) selectedHarvestProviderId = (items.find((x) => (TIER_RANK[x.tier.slug] ?? 0) <= myRank) || items[0]).p.id;
+  el.innerHTML = items.map((x) => { const locked = (TIER_RANK[x.tier.slug] ?? 0) > myRank; const comingSoon = x.tier.slug === "premium"; const isLocked = locked || comingSoon; const clickFn = comingSoon ? "showComingSoon()" : `selectHarvestProvider(${x.p.id})`; return `<div class="tier-side-opt${x.p.id === selectedHarvestProviderId ? " sel" : ""}${isLocked ? " locked" : ""}" data-pid="${x.p.id}" onclick="${clickFn}">${isLocked ? "🔒 " : ""}${esc(short[x.tier.slug] || x.tier.name)} • ${x.p.modelCount} Model</div>`; }).join("");
   const cur = items.find((x) => x.p.id === selectedHarvestProviderId);
   const lbl = $("#tierPickerLabel"); if (lbl && cur) lbl.textContent = `${short[cur.tier.slug] || cur.tier.name} • ${cur.p.modelCount} Model`;
   updateHarvestLimitUI();
