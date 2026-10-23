@@ -1111,6 +1111,9 @@ const BANSOS_KEY_LIMIT = 2;
 const BANSOS_MODEL_MAP = { "codestral-latest": "codestral/codestral-latest", "qwen3.6-27b": "groq/qwen/qwen3.6-27b", "gpt-oss-20b": "groq/openai/gpt-oss-20b", "mistral-large-latest": "mistral/mistral-large-latest" };
 const BANSOS_PER_ACCOUNT_DAILY = 500000;
 function bansosProvider() { return db.prepare("SELECT * FROM providers WHERE brand_name='Bansos'").get() || null; }
+// Saklar gembok Bansos (perintah Hestia 2026-10-23): env BANSOS_ENABLED=0 mengunci total —
+// klaim key baru ditolak dan key bansos yang beredar tidak bisa dipakai. Hapus env / set 1 untuk membuka.
+function bansosEnabled() { return process.env.BANSOS_ENABLED !== "0"; }
 function bansosDay() { return new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10); }
 function bansosPool() {
   const p = bansosProvider();
@@ -1142,17 +1145,19 @@ function getAnonId(req, res) {
   return id;
 }
 app.get("/api/bansos/pool", (req, res) => {
+  if (!bansosEnabled()) return res.json({ ok: true, enabled: false, total: 0, used: 0, remaining: 0, accounts: 0 });
   const p = bansosPool();
-  res.json({ ok: true, total: p.total, used: p.used, remaining: p.remaining, accounts: p.accounts });
+  res.json({ ok: true, enabled: true, total: p.total, used: p.used, remaining: p.remaining, accounts: p.accounts });
 });
 app.get("/api/bansos/my-keys", (req, res) => {
   const anon = getAnonId(req, res);
   const p = bansosProvider();
   if (!p) return res.json({ ok: true, keys: [], limit: BANSOS_KEY_LIMIT, locked: false });
   const rows = db.prepare("SELECT key_value, created_at FROM api_keys WHERE anon_id=? AND provider_id=? AND status='active' ORDER BY id ASC").all(anon, p.id);
-  res.json({ ok: true, keys: rows.map((r) => ({ key: r.key_value, createdAt: r.created_at })), limit: BANSOS_KEY_LIMIT, locked: rows.length >= BANSOS_KEY_LIMIT });
+  res.json({ ok: true, keys: rows.map((r) => ({ key: r.key_value, createdAt: r.created_at })), limit: BANSOS_KEY_LIMIT, locked: !bansosEnabled() || rows.length >= BANSOS_KEY_LIMIT });
 });
 app.post("/api/bansos/keys", (req, res) => {
+  if (!bansosEnabled()) return res.status(403).json({ ok: false, error: "Bansos sedang digembok sementara.", code: "bansos_disabled" });
   const anon = getAnonId(req, res);
   const p = bansosProvider();
   if (!p) return res.status(503).json({ ok: false, error: "Bansos belum tersedia." });
@@ -1492,6 +1497,7 @@ app.post("/v1/chat/completions", async (req, res) => {
   // BANSOS: key anonim memakai pool akun (workers) bergiliran, yang paling sedikit dipakai duluan.
   const isBansosKey = !!(key.anon_id && provider);
   if (isBansosKey) {
+    if (!bansosEnabled()) return res.status(403).json({ error: { message: "Bansos sedang digembok sementara.", type: "invalid_request_error", param: null, code: "bansos_disabled" } });
     const poolNow = bansosPool();
     if (poolNow.remaining <= 0) return res.status(429).json({ error: { message: "Token bansos hari ini habis. Besok ngisi lagi!", type: "rate_limit_error", param: null, code: "bansos_pool_empty" } });
     const dayB = bansosDay();
