@@ -90,6 +90,15 @@ function seed() {
     "Bansos", "Token gratis untuk semua pengguna.", 4, JSON.stringify(BANSOS_MODELS), JSON.stringify(BANSOS_NOTES), "4.5 juta token per hari untuk semua pengguna.", null, 99, null
   );
   db.prepare("UPDATE providers SET model_count=?, model_list_json=?, model_notes_json=?, credit_note=? WHERE brand_name='Bansos'").run(4, JSON.stringify(BANSOS_MODELS), JSON.stringify(BANSOS_NOTES), "4.5 juta token per hari untuk semua pengguna.");
+  // Migrasi 2026-10-24: users.suspended + jejak login (last_ip/last_ua/last_login_at)
+  // untuk panel admin — perintah Hestia: admin bisa suspend pengguna + lihat IP/HP-nya.
+  try {
+    const ucols3 = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+    if (!ucols3.includes("suspended")) db.prepare("ALTER TABLE users ADD COLUMN suspended INTEGER DEFAULT 0").run();
+    if (!ucols3.includes("last_ip")) db.prepare("ALTER TABLE users ADD COLUMN last_ip TEXT").run();
+    if (!ucols3.includes("last_ua")) db.prepare("ALTER TABLE users ADD COLUMN last_ua TEXT").run();
+    if (!ucols3.includes("last_login_at")) db.prepare("ALTER TABLE users ADD COLUMN last_login_at TEXT").run();
+  } catch {}
   // Migrasi 2026-10-18: users.gratis_started_at — awal masa 2 hari Gratis (total, bukan per-key).
   try {
     const ucols2 = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
@@ -293,6 +302,34 @@ function clientIp(req) {
   const xff = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
   return xff || (req.socket && req.socket.remoteAddress) || "unknown";
 }
+// Jejak login pengguna (IP + perangkat) untuk panel admin (2026-10-24).
+function catatJejakLogin(req, userId) {
+  try {
+    db.prepare("UPDATE users SET last_ip=?, last_ua=?, last_login_at=datetime('now') WHERE id=?")
+      .run(clientIp(req) || null, String((req.headers && req.headers["user-agent"]) || "").slice(0, 300) || null, userId);
+  } catch {}
+}
+// Ringkas User-Agent jadi label perangkat yang enak dibaca admin, mis. "Android · SM-G991B · Chrome".
+function ringkasPerangkat(ua) {
+  const s = String(ua || "");
+  if (!s) return null;
+  let os = "Tidak dikenal";
+  if (/Android/i.test(s)) { const m = s.match(/Android\s[\d.]+;\s*([^;)]+)/i); os = "Android" + (m ? " · " + m[1].replace(/\s+Build.*$/, "").trim() : ""); }
+  else if (/iPhone/i.test(s)) os = "iPhone";
+  else if (/iPad/i.test(s)) os = "iPad";
+  else if (/Windows/i.test(s)) os = "Windows";
+  else if (/Macintosh|Mac OS/i.test(s)) os = "Mac";
+  else if (/Linux/i.test(s)) os = "Linux";
+  let br = "";
+  if (/Edg\//i.test(s)) br = "Edge";
+  else if (/OPR\/|Opera/i.test(s)) br = "Opera";
+  else if (/SamsungBrowser/i.test(s)) br = "Samsung Browser";
+  else if (/Firefox\//i.test(s)) br = "Firefox";
+  else if (/Chrome\//i.test(s)) br = "Chrome";
+  else if (/Safari\//i.test(s)) br = "Safari";
+  if (/wv\)|WebView/i.test(s)) br = (br ? br + " " : "") + "(WebView)";
+  return br ? os + " · " + br : os;
+}
 function makeLimiter(maxPerMin, label) {
   const buckets = new Map();
   setInterval(() => { const now = Date.now(); for (const [k, b] of buckets) if (now > b.reset) buckets.delete(k); }, 60000).unref();
@@ -343,7 +380,7 @@ function getSessionUser(req) {
   const m = raw.match(/(?:^|;\s*)hestia_session=([^;]+)/);
   const uid = verifySession(m ? decodeURIComponent(m[1]) : null);
   if (!uid) return null;
-  const u = db.prepare("SELECT id,email,name,avatar,is_admin,created_at,COALESCE(tier_slug,'gratis') AS tier_slug,tier_expires_at FROM users WHERE id=?").get(uid);
+  const u = db.prepare("SELECT id,email,name,avatar,is_admin,created_at,COALESCE(tier_slug,'gratis') AS tier_slug,tier_expires_at,COALESCE(suspended,0) AS suspended FROM users WHERE id=?").get(uid);
   if (!u) return null; u.tier_slug = effectiveTierSlug(u); return u;
 }
 function requireAuth(req, res, next) {
@@ -1199,6 +1236,7 @@ app.get("/auth/google/callback", async (req, res) => {
       db.prepare("UPDATE users SET is_admin=1 WHERE id=?").run(user.id);
       user.is_admin = 1;
     }
+    catatJejakLogin(req, user.id);
     res.cookie("hestia_session", signSession(user.id), { httpOnly: true, sameSite: "lax", path: "/", maxAge: 30 * 24 * 3600 * 1000 });
     res.redirect("/");
   } catch (e) { res.redirect("/?oauth=error"); }
@@ -1217,6 +1255,7 @@ app.post("/api/test-login", (req, res) => {
     const r = db.prepare("INSERT INTO users (google_id,email,name,avatar,is_admin) VALUES (?,?,?,?,?)").run("test-" + randHex(6), email, name || email, "", isAdmin ? 1 : 0);
     user = db.prepare("SELECT * FROM users WHERE id=?").get(r.lastInsertRowid);
   }
+  catatJejakLogin(req, user.id);
   res.cookie("hestia_session", signSession(user.id), { httpOnly: true, sameSite: "lax", path: "/" });
   res.json({ ok: true, user: { id: user.id, email: user.email, name: user.name, is_admin: user.is_admin } });
 });
@@ -1334,6 +1373,7 @@ app.post("/api/my-keys", requireAuth, async (req, res) => {
 });
 // Voucher redeem: kode 16 karakter (1x pakai) -> upgrade paket user selama durasi tier (Plus 3 hari, Pro 7 hari, Premium 14 hari).
 app.post("/api/voucher/redeem", requireAuth, (req, res) => {
+  if (req.user.suspended) return res.status(403).json({ ok: false, error: "Akun kamu sedang disuspend oleh admin." });
   const raw = String(req.body.code || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   if (raw.length !== 16) return res.status(400).json({ ok: false, error: "Kode vocher harus 16 karakter." });
   const v = db.prepare("SELECT * FROM vouchers WHERE REPLACE(code,'-','')=?").get(raw);
@@ -1373,6 +1413,7 @@ app.delete("/api/admin/vouchers/:id", requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 app.post("/api/harvest", requireAuth, async (req, res) => {
+  if (req.user.suspended) return res.status(403).json({ ok: false, error: "account_suspended" });
   const count = Number(req.body.count);
   const provider = db.prepare("SELECT * FROM providers WHERE id=?").get(req.body.providerId);
   if (!provider) return res.status(404).json({ ok: false, error: "provider_not_found" });
@@ -1410,7 +1451,7 @@ app.get("/api/admin/stats", requireAdmin, (req, res) => {
 });
 app.get("/api/admin/users", requireAdmin, (req, res) => {
   const rows = db.prepare("SELECT u.*, (SELECT COUNT(*) FROM api_keys k WHERE k.user_id=u.id AND k.status='active') AS key_count FROM users u ORDER BY u.created_at DESC").all();
-  res.json({ ok: true, users: rows.map((u) => ({ id: u.id, email: u.email, name: u.name, avatar: u.avatar, isAdmin: !!u.is_admin, keyCount: u.key_count, createdAt: u.created_at, tierSlug: effectiveTierSlug(u) })) });
+  res.json({ ok: true, users: rows.map((u) => ({ id: u.id, email: u.email, name: u.name, avatar: u.avatar, isAdmin: !!u.is_admin, suspended: !!u.suspended, lastIp: u.last_ip || null, device: ringkasPerangkat(u.last_ua), lastUa: u.last_ua || null, lastLoginAt: u.last_login_at || null, keyCount: u.key_count, createdAt: u.created_at, tierSlug: effectiveTierSlug(u) })) });
 });
 app.post("/api/admin/users/:id/tier", requireAdmin, (req, res) => {
   const slug = String(req.body.tierSlug || "").toLowerCase();
@@ -1432,6 +1473,15 @@ app.delete("/api/admin/users/:id", requireAdmin, (req, res) => {
   db.prepare("DELETE FROM api_keys WHERE user_id=?").run(req.params.id);
   db.prepare("DELETE FROM users WHERE id=?").run(req.params.id);
   res.json({ ok: true });
+});
+app.post("/api/admin/users/:id/suspend", requireAdmin, (req, res) => {
+  if (Number(req.params.id) === req.user.id) return res.status(400).json({ ok: false, error: "cannot_suspend_self" });
+  const target = db.prepare("SELECT id, is_admin FROM users WHERE id=?").get(req.params.id);
+  if (!target) return res.status(404).json({ ok: false, error: "user_not_found" });
+  if (target.is_admin) return res.status(400).json({ ok: false, error: "cannot_suspend_admin" });
+  const val = req.body && req.body.suspended ? 1 : 0;
+  db.prepare("UPDATE users SET suspended=? WHERE id=?").run(val, req.params.id);
+  res.json({ ok: true, suspended: !!val });
 });
 app.get("/api/admin/keys", requireAdmin, (req, res) => {
   const q = req.query.userId ? "WHERE k.user_id=?" : "";
@@ -1573,6 +1623,10 @@ function gatewayAuth(req) {
       }
     }
   }
+  // Suspend pengguna (2026-10-24): key milik user yang disuspend admin mati total.
+  if (key.user_id) {
+    try { const ow = db.prepare("SELECT suspended FROM users WHERE id=?").get(key.user_id); if (ow && ow.suspended) key._suspended = true; } catch {}
+  }
   return key;
 }
 function gatewayKeyModels(key) {
@@ -1589,6 +1643,7 @@ app.get("/v1/models", (req, res) => {
   if (!key) return res.status(401).json({ error: { message: "Incorrect API key provided. You can find your HestiaFlow API key at Halaman Pengguna.", type: "invalid_request_error", param: null, code: "invalid_api_key" } });
   if (key._pro_locked) return res.status(401).json({ error: { message: "Tier Pro sedang dalam perbaikan. Coba lagi nanti.", type: "invalid_request_error", param: null, code: "pro_locked" } });
   if (key._coming_soon) return res.status(401).json({ error: { message: "Segera Hadir!", type: "invalid_request_error", param: null, code: "coming_soon" } });
+  if (key._suspended) return res.status(403).json({ error: { message: "Akun pemilik API key ini sedang disuspend oleh admin.", type: "invalid_request_error", param: null, code: "account_suspended" } });
   if (key._expired) return res.status(401).json({ error: { message: "API key sudah kadaluarsa (Gratis: 2 hari). Panen lagi atau upgrade paket!", type: "invalid_request_error", param: null, code: "key_expired" } });
   const models = gatewayKeyModels(key);
   const now = Math.floor(Date.now() / 1000);
@@ -1599,6 +1654,7 @@ app.get("/v1/credit", (req, res) => {
   if (!key) return res.status(401).json({ error: { message: "Incorrect API key provided. You can find your HestiaFlow API key at Halaman Pengguna.", type: "invalid_request_error", param: null, code: "invalid_api_key" } });
   if (key._pro_locked) return res.status(401).json({ error: { message: "Tier Pro sedang dalam perbaikan. Coba lagi nanti.", type: "invalid_request_error", param: null, code: "pro_locked" } });
   if (key._coming_soon) return res.status(401).json({ error: { message: "Segera Hadir!", type: "invalid_request_error", param: null, code: "coming_soon" } });
+  if (key._suspended) return res.status(403).json({ error: { message: "Akun pemilik API key ini sedang disuspend oleh admin.", type: "invalid_request_error", param: null, code: "account_suspended" } });
   if (key._expired) return res.status(401).json({ error: { message: "API key sudah kadaluarsa (Gratis: 2 hari). Panen lagi atau upgrade paket!", type: "invalid_request_error", param: null, code: "key_expired" } });
   const provider = key.provider_id ? db.prepare("SELECT brand_name, credit_note FROM providers WHERE id=?").get(key.provider_id) : null;
   const tier = key.tier_id ? db.prepare("SELECT slug FROM tiers WHERE id=?").get(key.tier_id) : null;
@@ -1637,6 +1693,7 @@ app.post("/v1/chat/completions", async (req, res) => {
   if (!key) return res.status(401).json({ error: { message: "Incorrect API key provided.", type: "invalid_request_error", param: null, code: "invalid_api_key" } });
   if (key._pro_locked) return res.status(401).json({ error: { message: "Tier Pro sedang dalam perbaikan. Coba lagi nanti.", type: "invalid_request_error", param: null, code: "pro_locked" } });
   if (key._coming_soon) return res.status(401).json({ error: { message: "Segera Hadir!", type: "invalid_request_error", param: null, code: "coming_soon" } });
+  if (key._suspended) return res.status(403).json({ error: { message: "Akun pemilik API key ini sedang disuspend oleh admin.", type: "invalid_request_error", param: null, code: "account_suspended" } });
   if (key._expired) return res.status(401).json({ error: { message: "API key sudah kadaluarsa (Gratis: 2 hari). Panen lagi atau upgrade paket!", type: "invalid_request_error", param: null, code: "key_expired" } });
   const { model, messages, stream } = req.body || {};
   if (!model || !Array.isArray(messages) || !messages.length) return res.status(400).json({ error: { message: "model and messages are required.", type: "invalid_request_error", param: null, code: "invalid_request" } });
@@ -1908,6 +1965,7 @@ async function copyToPantau(folderName, fileName, srcUrl) {
   return { status: "ok", fileId: uj.id, path: "hestiaflow-pantau/" + folderName + "/" + fileName };
 }
 async function handleMedia(req, res, mediaType, key) {
+  if (key._suspended) return res.status(403).json({ error: { message: "Akun pemilik API key ini sedang disuspend oleh admin.", type: "invalid_request_error", param: null, code: "account_suspended" } });
   if (key._pro_locked) return res.status(401).json({ error: { message: "Tier Pro sedang dalam perbaikan. Coba lagi nanti.", type: "invalid_request_error", param: null, code: "pro_locked" } });
   if (key._expired) return res.status(401).json({ error: { message: "API key sudah kadaluarsa. Panen lagi atau upgrade paket!", type: "invalid_request_error", param: null, code: "key_expired" } });
   if (!key.user_id) return res.status(403).json({ error: { message: "Generate media butuh API key dari akun yang login (bukan key anonim).", type: "invalid_request_error", param: null, code: "media_login_required" } });
@@ -2014,6 +2072,7 @@ app.post("/v1/images/generations", async (req, res) => {
   if (!key) return res.status(401).json({ error: { message: "Incorrect API key provided.", type: "invalid_request_error", param: null, code: "invalid_api_key" } });
   if (key._pro_locked) return res.status(401).json({ error: { message: "Tier Pro sedang dalam perbaikan. Coba lagi nanti.", type: "invalid_request_error", param: null, code: "pro_locked" } });
   if (key._expired) return res.status(401).json({ error: { message: "API key sudah kadaluarsa. Panen lagi atau upgrade paket!", type: "invalid_request_error", param: null, code: "key_expired" } });
+  if (key._suspended) return res.status(403).json({ error: { message: "Akun pemilik API key ini sedang disuspend oleh admin.", type: "invalid_request_error", param: null, code: "account_suspended" } });
   // JALUR 2: key tier Media dialihkan ke mesin Renderful + pantauan Drive (handleMedia).
   try { const t = key.tier_id ? db.prepare("SELECT slug FROM tiers WHERE id=?").get(key.tier_id) : null; if (t && t.slug === "media") return await handleMedia(req, res, "image", key); } catch (e) { return res.status(500).json({ error: { message: "Media handler error: " + (e && e.message), type: "upstream_error", param: null, code: "media_internal_error" } }); }
   // Catatan: kunci "Segera Hadir" (chat) tidak berlaku di sini — fitur gambar memang khusus Stella.
