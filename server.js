@@ -217,6 +217,15 @@ function seed() {
   );
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("TIER PLUS", "plus");
   db.prepare("UPDATE tiers SET badge=? WHERE slug=?").run("★ TIER PREMIUM", "premium");
+  // Migrasi 2026-10-24: Tier Pro diisi provider Vega (mesin di balik layar tidak
+  // ditampilkan publik — anti-bocor). Katalog = 79 model chat TERBUKTI dari sweep
+  // 2026-10-24, dikurasi perintah operator: hanya model asli pembuat ternama —
+  // tanpa model penjaga/sonar/rute agregator/alias "-latest". Kredit 25.000 per
+  // akun (hangus ±7 hari). upstream_url nilai internal DB (tidak tampil publik).
+  const VEGA_MODELS = ["gpt-4.1-mini","gpt-4.1-nano","gpt-4o-mini","gpt-5-mini","gpt-5-nano","gpt-5.4-mini","gpt-5.4-nano","gpt-5.6-luna","gpt-6-luna","gpt-oss-120b","claude-haiku-4-5","claude-haiku-5-5","cf.gemma-4-26b-a4b-it","gemini-2.5-flash","gemini-2.5-flash-lite","gemini-3-flash-preview","gemini-3.1-flash-lite","gemini-3.1-flash-lite-preview","gemini-3.5-flash-lite","gemini-3.7-flash","gemini-3.8-flash","cf.deepseek-r1-distill-qwen-32b","deepseek-chat","deepseek-v3.2","deepseek-v3.2-speciale","deepseek-v4-pro","grok-4-fast-non-reasoning","grok-4-fast-reasoning","grok-4.20-beta-0309-non-reasoning","grok-4.20-beta-0309-reasoning","grok-4.20-non-reasoning","grok-4.20-reasoning","grok-4.3","grok-4.5","grok-4.7","grok-code-fast-1","cf.glm-5.2","glm-5.1","glm-5.2","glm-5.3-flash","cf.qwen2.5-coder-32b-instruct","cf.qwq-32b","qwen-flash-2025-07-28","qwen-mt-flash","qwen-plus-2025-12-01","qwen-plus-character","qwen3-coder-flash","qwen3-vl-plus","qwen3.5-122b-a10b","qwen3.5-27b","qwen3.5-35b-a3b","qwen3.5-flash","qwen3.5-plus","qwen3.6-27b","qwen3.6-35b-a3b","qwen3.6-flash","qwen3.6-plus","qwen3.7-plus","qwen3.8-27b","qwen3.8-flash","cf.kimi-k2.7-code","kimi-k2.5","kimi-k2.6","kimi-k2.7-code","cf.llama-3.1-8b-instruct-fast","cf.llama-3.2-1b-instruct","cf.llama-3.2-3b-instruct","cf.llama-3.3-70b-instruct-fp8-fast","cf.llama-4-scout-17b-16e-instruct","cf.mistral-small-3.1-24b-instruct","mistral-large-3","mistral-small-2503","minimax-m2.5","minimax-m2.5-lightning","minimax-m2.7","minimax-m2.7-highspeed","cf.granite-4.0-h-micro","nemotron-3-ultra","nemotron-3.5-lightning"];
+  db.prepare("INSERT INTO providers (tier_id,brand_name,tagline,model_count,model_list_json,model_notes_json,credit_note,default_credit,sort_order,upstream_url) SELECT (SELECT id FROM tiers WHERE slug='pro'),?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM providers WHERE brand_name='Vega')").run("Vega", "Bintang penuntun untuk para profesional.", 79, JSON.stringify(VEGA_MODELS), "{}", "25 ribu kredit per akun (±7 hari).", 25000, 1, "https://api.avalai.ir/v1");
+  db.prepare("UPDATE providers SET tier_id=(SELECT id FROM tiers WHERE slug='pro'), tagline=?, model_count=?, model_list_json=?, credit_note=?, default_credit=?, upstream_url=? WHERE brand_name='Vega'").run("Bintang penuntun untuk para profesional.", 79, JSON.stringify(VEGA_MODELS), "25 ribu kredit per akun (±7 hari).", 25000, "https://api.avalai.ir/v1");
+
   // Koreksi permanen: base_url lama (domain mati: lovie.me bekas Railway +
   // hestia-gateway.id) diganti domain live sekarang (xioo.me di Hostless).
   db.prepare("UPDATE settings SET value='https://hestiaflow.xioo.me/v1' WHERE key='base_url' AND (value LIKE '%lovie.me%' OR value LIKE '%hestia-gateway.id%')").run();
@@ -994,6 +1003,239 @@ async function tryAutoRegisterNearresearch(provider) {
   return null;
 }
 
+
+// Auto-register Avalai (2026-10-24, Tier Pro; brand publik "Vega").
+// Flow terbukti (script operator di Termux E2E 2026-10-24 02:18):
+// inbox temp (noopmail, cadangan minuteinbox) -> kirim OTP (endpoint LAMA
+// /api/auth/v1/login/ lebih dulu; endpoint baru request-otp kadang sukses
+// tapi kode tidak tiba) -> poll inbox -> verifikasi via /api/auth/v1/verify/
+// (endpoint inilah yang mengeset cookie sesi platform) -> cek
+// /api/platform/api-list/ 200 -> buat key via /api/platform/create-key/
+// (auth = cookie sesi + header X-CSRFToken dari cookie csrftoken).
+// Anti-deteksi (aturan tetap operator 2026-10-23): API upstream lewat proxy
+// yang LOLOS cek jangkauan ke upstream (maks 8 calon), UA acak per akun,
+// nama key ACAK dari nama orang/benda (BUKAN nama operator — perintah
+// operator 2026-10-24). Inbox selalu koneksi langsung (proxy gratis lemot).
+// Kredit 25.000 per akun, hangus ±7 hari -> expiresAt akun diisi +7 hari.
+const VEGA_NAMA_ORANG = ["Andini", "Bima", "Citra", "Dimas", "Eka", "Fitri", "Gilang", "Hana", "Indra", "Kirana", "Lukman", "Maya", "Nanda", "Putri", "Raka", "Sari", "Teguh", "Utami", "Vina", "Wahyu", "Yoga", "Zahra", "Bagas", "Dewi", "Fajar", "Galih", "Intan", "Rizki", "Sinta", "Tania", "Umar", "Vera", "Wulan", "Yusuf", "Zaki", "Aldi", "Bella", "Candra", "Dina", "Edo"];
+const VEGA_NAMA_BELAKANG = ["Prasetyo", "Wulandari", "Nugroho", "Saputra", "Lestari", "Firmansyah", "Anggraini", "Hidayat", "Puspita", "Ramadhan", "Maharani", "Setiawan", "Fitriani", "Kurniawan", "Salsabila", "Hakim", "Nurfadilah", "Salim", "Azzahra", "Maulana"];
+const VEGA_NAMA_BENDA = ["Kopi", "Senja", "Karang", "Melati", "Cempaka", "Angkasa", "Damar", "Embun", "Flamboyan", "Genta", "Hujan", "Jati", "Kenanga", "Langit", "Mahoni", "Ombak", "Pijar", "Rimba", "Sagu", "Ulin", "Arunika", "Bayu", "Cakra", "Banyu", "Ilalang"];
+function vegaNamaAcak() {
+  const pick = (a) => a[Math.floor(Math.random() * a.length)];
+  const r = Math.random();
+  if (r < 0.55) return pick(VEGA_NAMA_ORANG) + " " + pick(VEGA_NAMA_BELAKANG);
+  if (r < 0.8) return pick(VEGA_NAMA_BENDA) + " " + pick(VEGA_NAMA_BENDA);
+  return pick(VEGA_NAMA_ORANG) + " " + pick(VEGA_NAMA_BENDA);
+}
+async function tryAutoRegisterAvalai(provider) {
+  const apiBase = ((provider && provider.upstream_url) || "https://api.avalai.ir/v1").replace(/\/$/, "");
+  const authBase = apiBase.replace("://api.", "://chat.").replace(/\/v1$/, "");
+  const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+  // --- sesi cookie-jar (fetch Node tidak menyimpan cookie sendiri) ---
+  const buatSesi = (disp, ua) => {
+    const jar = new Map();
+    const F = async (url, opts = {}, ms = 30000) => {
+      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), ms);
+      try {
+        const headers = { "User-Agent": ua, ...(opts.headers || {}) };
+        const ck = [...jar.entries()].map(([k, v]) => `${k}=${v}`).join("; ");
+        if (ck) headers.Cookie = ck;
+        const o = { ...opts, headers, signal: ctl.signal };
+        if (disp) o.dispatcher = disp;
+        const r = await fetch(url, o);
+        try { for (const c of (r.headers.getSetCookie ? r.headers.getSetCookie() : [])) { const pair = c.split(";")[0]; const i = pair.indexOf("="); if (i > 0) jar.set(pair.slice(0, i).trim(), pair.slice(i + 1).trim()); } } catch {}
+        return r;
+      } finally { clearTimeout(t); }
+    };
+    return { F, jar };
+  };
+  const csrfDari = async (S, referer) => {
+    if (S.jar.get("csrftoken")) return S.jar.get("csrftoken");
+    for (const method of ["POST", "GET"]) {
+      try {
+        const r = await S.F(authBase + "/api/auth/csrf/", { method, headers: { Referer: authBase + referer } });
+        if (S.jar.get("csrftoken")) return S.jar.get("csrftoken");
+        const j = await r.json().catch(() => null);
+        const tok = j && (j.csrfToken || j.csrf_token);
+        if (tok) return tok;
+      } catch {}
+    }
+    return S.jar.get("csrftoken") || "";
+  };
+  const authH = async (S, referer, force) => {
+    if (force) S.jar.delete("csrftoken");
+    const csrf = await csrfDari(S, referer);
+    const h = { Referer: authBase + referer };
+    if (csrf) h["X-CSRFToken"] = csrf;
+    return h;
+  };
+  // --- inbox temp (langsung, tanpa proxy) ---
+  const inboxNoopmail = async () => {
+    try {
+      const r = await fetch("https://noopmail.org/api/rd", { headers: { "User-Agent": randUA() }, signal: AbortSignal.timeout(20000) });
+      const d = await r.json().catch(() => null);
+      const domain = d && d.dm;
+      if (!domain) return null;
+      const local = randStr(12, "abcdefghijklmnopqrstuvwxyz");
+      const email = `${local}@${domain}`;
+      const poll = async (waitMs) => {
+        const deadline = Date.now() + waitMs;
+        while (Date.now() < deadline) {
+          try {
+            const rr = await fetch("https://noopmail.org/api/c", { method: "POST", headers: { "User-Agent": randUA(), "Content-Type": "application/json" }, body: JSON.stringify({ e: local, d: domain }), signal: AbortSignal.timeout(20000) });
+            const msgs = await rr.json().catch(() => null);
+            if (Array.isArray(msgs)) for (const m of msgs) {
+              const frm = ((m.from || "") + " " + (m.subject || "")).toLowerCase();
+              if (frm.includes("avalai")) {
+                const cm = ((m.subject || "") + " " + (m.text || "")).match(/\b(\d{6})\b/);
+                if (cm) return cm[1];
+              }
+            }
+          } catch {}
+          await sleep(5000);
+        }
+        return null;
+      };
+      return { email, poll };
+    } catch { return null; }
+  };
+  const inboxMinute = async () => {
+    try {
+      const S = buatSesi(null, randUA());
+      const r = await S.F("https://minuteinbox.com/index/index", {}, 20000);
+      const t = await r.text().catch(() => "");
+      const m = t.match(/data-email="([^"]+)"/) || t.match(/([a-zA-Z0-9._-]+@minafter\.com)/);
+      if (!m) return null;
+      const email = m[1];
+      const poll = async (waitMs) => {
+        const deadline = Date.now() + waitMs; const seen = new Set();
+        while (Date.now() < deadline) {
+          try {
+            const rr = await S.F("https://minuteinbox.com/index/refresh", {}, 20000);
+            const tt = await rr.text().catch(() => "");
+            const re = /data-id="(\d+)"[^>]*>[^]*?avalai/gi;
+            let mm;
+            while ((mm = re.exec(tt))) {
+              const mid = mm[1];
+              if (seen.has(mid)) continue;
+              seen.add(mid);
+              const r2 = await S.F("https://minuteinbox.com/email/" + mid, {}, 20000);
+              const t2 = await r2.text().catch(() => "");
+              const cm = t2.match(/\b(\d{6})\b/);
+              if (cm) return cm[1];
+            }
+          } catch {}
+          await sleep(5000);
+        }
+        return null;
+      };
+      return { email, poll };
+    } catch { return null; }
+  };
+  // --- proxy: hanya yang lolos cek jangkauan ke upstream ---
+  let okProxies = [];
+  try {
+    const raw = await fetchProxyList();
+    const cand = [...raw].sort(() => Math.random() - 0.5).slice(0, 40);
+    const cek = await Promise.all(cand.map(async (px) => {
+      const d = proxyDispatcher(px);
+      if (!d) return null;
+      try { const r = await fetch(authBase + "/api/auth/csrf/", { dispatcher: d, headers: { "User-Agent": randUA() }, signal: AbortSignal.timeout(8000) }); return r.status < 500 ? px : null; } catch { return null; }
+    }));
+    okProxies = cek.filter(Boolean).slice(0, 3);
+  } catch {}
+  const routes = [...okProxies, null];
+  console.log(`[vega] rute proxy lolos cek: ${okProxies.length}`);
+  for (const px of routes) {
+    const disp = px ? proxyDispatcher(px) : null;
+    if (px && !disp) continue;
+    const S = buatSesi(disp, randUA());
+    try {
+      // 1) Inbox (noopmail dulu, minuteinbox cadangan).
+      let inbox = await inboxNoopmail();
+      if (!inbox) inbox = await inboxMinute();
+      if (!inbox) { console.log("[vega] inbox gagal dibuat"); continue; }
+      const email = inbox.email;
+      // 2) Kirim OTP: endpoint LAMA dulu (terbukti kode tiba), baru endpoint baru.
+      let otpSent = false;
+      for (let attempt = 1; attempt <= 3 && !otpSent; attempt++) {
+        const h = await authH(S, "/chat");
+        if (!h["X-CSRFToken"]) { await sleep(4000); continue; }
+        for (const path of ["/api/auth/v1/login/", "/api/auth/v1/request-otp/"]) {
+          try {
+            const r = await S.F(authBase + path, { method: "POST", headers: { ...h, "Content-Type": "application/json" }, body: JSON.stringify({ identifier: email, type: "email" }) });
+            const d = await r.json().catch(() => ({}));
+            console.log(`[vega] kirim OTP ${path} -> HTTP ${r.status}`);
+            if (r.status === 200 && d && typeof d === "object" && !("error" in d) && d.requires_verification !== false) { otpSent = true; break; }
+          } catch { console.log(`[vega] kirim OTP ${path} timeout`); }
+        }
+        if (!otpSent) await sleep(4000);
+      }
+      if (!otpSent) { console.log("[vega] OTP gagal dikirim"); continue; }
+      // 3) Poll inbox (maks 150 detik).
+      const code = await inbox.poll(150000);
+      if (!code) { console.log("[vega] OTP tidak tiba"); continue; }
+      // 4) Verifikasi via /verify/ (pembentuk cookie sesi platform).
+      const hv = await authH(S, "/chat");
+      let vr = await S.F(authBase + "/api/auth/v1/verify/", { method: "POST", headers: { ...hv, "Content-Type": "application/json" }, body: JSON.stringify({ identifier: email, type: "email", code }) });
+      if (vr.status === 404) vr = await S.F(authBase + "/api/auth/v1/login/", { method: "POST", headers: { ...hv, "Content-Type": "application/json" }, body: JSON.stringify({ identifier: email, type: "email", code }) });
+      const vd = await vr.json().catch(() => ({}));
+      if (vr.status !== 200 || (vd && "error" in vd)) { console.log(`[vega] verifikasi gagal HTTP ${vr.status}`); continue; }
+      // 5) Cek sesi dikenal platform.
+      const cekSesi = async () => {
+        try { const hh = await authH(S, "/platform/api-keys"); const rr = await S.F(authBase + "/api/platform/api-list/", { headers: hh }); return rr.status === 200; } catch { return false; }
+      };
+      let sesiOk = await cekSesi();
+      // 6) Kunjungi halaman platform (menghangatkan sesi), lalu buat key.
+      try { await S.F(authBase + "/platform/api-keys", {}); } catch {}
+      await sleep(2000);
+      const namaKey = vegaNamaAcak();
+      const buatKey = async () => {
+        const hh = await authH(S, "/platform/api-keys");
+        const payload = { name: namaKey, permissions: { allowed_models: [], allowed_ips: [], monthly_quota: null, ttl_days: null, total_budget: null, custom_settings: {}, allowed_endpoints: [], allowed_intents: {} } };
+        const r = await S.F(authBase + "/api/platform/create-key/", { method: "POST", headers: { ...hh, "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        const txt = await r.text().catch(() => "");
+        let d = null; try { d = JSON.parse(txt); } catch {}
+        return { status: r.status, d, txt };
+      };
+      let kr = await buatKey();
+      if (kr.status === 403 && kr.txt.includes("credentials were not provided")) {
+        await authH(S, "/platform/api-keys", true);
+        sesiOk = await cekSesi();
+        if (sesiOk) kr = await buatKey();
+      }
+      let upstreamKey = null;
+      if (kr.status === 200 && kr.d) {
+        const dd = kr.d.data && typeof kr.d.data === "object" ? kr.d.data : {};
+        upstreamKey = kr.d.key || kr.d.api_key || kr.d.apiKey || kr.d.token || kr.d.secret || dd.key || dd.api_key || dd.apiKey || dd.token || dd.secret || null;
+        const keyId = kr.d.id || dd.id;
+        if (!upstreamKey && keyId) {
+          await sleep(3000);
+          try {
+            const hh = await authH(S, "/platform/api-keys");
+            const r2 = await S.F(authBase + "/api/platform/api-key/?id=" + encodeURIComponent(keyId), { headers: hh });
+            const d2 = await r2.json().catch(() => null);
+            if (d2) { const e2 = d2.data && typeof d2.data === "object" ? d2.data : {}; upstreamKey = d2.key || d2.api_key || d2.apiKey || d2.token || d2.secret || e2.key || e2.api_key || null; }
+          } catch {}
+        }
+      }
+      if (!upstreamKey) { console.log(`[vega] create-key gagal HTTP ${kr.status}`); continue; }
+      // 7) Verifikasi key hidup ke API chat.
+      let live = false;
+      try {
+        const r = await fetch(apiBase + "/models", { headers: { Authorization: `Bearer ${upstreamKey}` }, signal: AbortSignal.timeout(20000) });
+        live = r.ok;
+      } catch {}
+      console.log(`[vega] akun jadi: ${email} key=${live ? "HIDUP" : "belum terverifikasi"} sesi=${sesiOk}`);
+      return { upstreamApiKey: upstreamKey, upstreamBaseUrl: apiBase, tempEmail: email, tempPassword: "", live, balance: 25000, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() };
+    } catch (e) {
+      console.log(`[vega] rute gagal: ${e && e.message ? e.message : "unknown"}`);
+      continue;
+    }
+  }
+  return null;
+}
+
 // Auto-register a real provider account (server-side, no admin config).
 // Tries generic signup/login/key endpoints against the provider's upstream_url
 // (operator-configured in DB). Returns { upstreamApiKey, upstreamBaseUrl } or null.
@@ -1026,6 +1268,13 @@ async function tryAutoRegister(provider, tempEmail, tempPassword) {
   if ((provider.brand_name || "").toLowerCase() === "stella") {
     const nr = await tryAutoRegisterNearresearch(provider);
     if (nr) return nr;
+    return null;
+  }
+  // Vega = Avalai (2026-10-24, Tier Pro — gantiin Nova/OpenToke yang mati total).
+  // Nama provider TIDAK ditampilkan publik; brand publik tetap "Vega".
+  if ((provider.brand_name || "").toLowerCase() === "vega") {
+    const av = await tryAutoRegisterAvalai(provider);
+    if (av) return av;
     return null;
   }
   // Zerolimit = ZeroLimitAI (2026-10-21, tier Gratis). Register tanpa captcha & tanpa verifikasi email.
@@ -1615,12 +1864,12 @@ function gatewayAuth(req) {
   if (!key) return null;
   // Cek kadaluarsa per-key (Gratis: 2 hari dari panen).
   if (key.expires_at && new Date(key.expires_at) < new Date()) key._expired = true;
-  // Pro DIKUNCI (2026-10-18): provider OpenToke mati, key Pro tidak bisa dipakai.
+  // Pro DIBUKA lagi 2026-10-24: tier Pro diisi provider Vega (kunci blanket
+  // 2026-10-18 dicabut — mesin lama yang mati sudah diganti). Premium tetap ditandai.
   if (key.tier_id) {
     try {
       const t = db.prepare("SELECT slug FROM tiers WHERE id=?").get(key.tier_id);
-      if (t && t.slug === "pro") key._pro_locked = true;
-      if (t && t.slug === "premium") key._coming_soon = true; // Plus dibuka 2026-10-23 (Aurora live)
+      if (t && t.slug === "premium") key._coming_soon = true;
     } catch {}
   }
   // Cek masa Gratis TOTAL (2 hari dari panen pertama) — 2026-10-18. Abis 2 hari, key mati total.
