@@ -1775,13 +1775,32 @@ async function handleMedia(req, res, mediaType, key) {
     else if (sz.includes("1024x1536") || sz === "9:16" || sz === "portrait" || sz === "vertical") extra.aspect_ratio = "9:16";
     else if (sz.includes("1024x1024") || sz === "1:1") extra.aspect_ratio = "1:1";
   }
+  // Parameter lengkap (perintah Hestia 2026-10-23): diteruskan ke provider apa adanya.
+  // Model yang tidak mendukung parameter tertentu menolaknya di hulu (gagal = tanpa biaya).
+  if (Number.isInteger(body.seed)) extra.seed = body.seed;
+  const neg = typeof body.negative_prompt === "string" ? body.negative_prompt : (typeof body.negativePrompt === "string" ? body.negativePrompt : "");
+  if (neg.trim()) extra.negative_prompt = neg.trim().slice(0, 1000);
+  if (isVideo) {
+    const nf = parseInt(body.num_frames != null ? body.num_frames : body.frames, 10);
+    if (Number.isFinite(nf) && nf > 0) extra.num_frames = nf;
+    const fps = parseInt(body.fps, 10);
+    if (Number.isFinite(fps) && fps > 0) extra.fps = fps;
+    if (body.size && !body.resolution) {
+      const szv = String(body.size).toLowerCase();
+      if (szv.includes("1920x1080") || szv.includes("1080p")) extra.resolution = "1080p";
+      else if (szv.includes("1280x720") || szv.includes("720p")) extra.resolution = "720p";
+      else if (szv.includes("854x480") || szv.includes("480p")) extra.resolution = "480p";
+    }
+  }
   if (isVideo && !isV2V) {
     // Resep terverifikasi 2026-10-23: tanpa resolution eksplisit, Renderful mengisi "1k"
     // (bawaan gambar) dan Seedance menolaknya ("resolution not valid"). Durasi sah 4-12 dtk.
     // Model video-dari-video dikecualikan: bentuknya mengikuti video sumber.
-    extra.resolution = body.resolution ? String(body.resolution) : "720p";
-    const d = parseInt(body.duration, 10);
-    extra.duration = Number.isFinite(d) ? Math.min(12, Math.max(4, d)) : 5;
+    extra.resolution = body.resolution ? String(body.resolution) : (extra.resolution || "720p");
+    if (!extra.num_frames) {
+      const d = parseInt(body.duration, 10);
+      extra.duration = Number.isFinite(d) ? Math.min(12, Math.max(4, d)) : 5;
+    }
   }
   let gen = null, lastErr = null;
   for (let i = 0; i < keys.length && !gen; i++) {
