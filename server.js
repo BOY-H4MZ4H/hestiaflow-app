@@ -1669,9 +1669,15 @@ app.post("/v1/chat/completions", async (req, res) => {
       upstreamCandidates.push({ key: h.upstream_api_key, url: h.upstream_base_url || (provider ? provider.upstream_url : null), harvestId: h.id });
     }
   } else {
-    // Sama: lewati akun yang lagi cooldown, ambil yang terbaru di luar cooldown (2026-10-22).
-    const ha = db.prepare("SELECT id, upstream_api_key, upstream_base_url FROM harvested_accounts WHERE api_key_id=? AND upstream_api_key IS NOT NULL AND (cooldown_until IS NULL OR cooldown_until<=?) ORDER BY id DESC LIMIT 1").get(key.id, new Date().toISOString());
-    if (ha) upstreamCandidates.push({ key: ha.upstream_api_key, url: ha.upstream_base_url || (provider ? provider.upstream_url : null), harvestId: ha.id });
+    // Semua akun hidup jadi kandidat (terbaru dulu) — failover WAJIB jalan di semua tier
+    // (2026-10-23, perintah Hestia: "akun yang di suspend jangan ikut masuk"). Dulu cuma
+    // 1 akun terbaru yang dimuat, jadi kalau akun itu kena suspend, error-nya tembus ke
+    // pengguna dan akun sehat di key yang sama tidak pernah dicoba. Sekarang akun yang
+    // suspend dihapus permanen dan request diteruskan ke akun sehat berikutnya.
+    const has = db.prepare("SELECT id, upstream_api_key, upstream_base_url FROM harvested_accounts WHERE api_key_id=? AND upstream_api_key IS NOT NULL AND (cooldown_until IS NULL OR cooldown_until<=?) ORDER BY id DESC").all(key.id, new Date().toISOString());
+    for (const h of has) {
+      upstreamCandidates.push({ key: h.upstream_api_key, url: h.upstream_base_url || (provider ? provider.upstream_url : null), harvestId: h.id });
+    }
   }
   if (upstreamCandidates.length === 0 && provider) {
     // Fallback ke provider-level
@@ -1767,7 +1773,7 @@ app.post("/v1/chat/completions", async (req, res) => {
       clearTimeout(t);
       const data = await r.json().catch(() => ({}));
       // Jika error rate limit, coba berikutnya
-      if (data && data.error && /rate[_ ]limit|insufficient|quota|revoked|authentication/i.test(JSON.stringify(data.error)) && upstreamCandidates.length > 1) {
+      if (data && data.error && /rate[_ ]limit|insufficient|quota|revoked|authentication|account_blocked|suspended/i.test(JSON.stringify(data.error)) && upstreamCandidates.length > 1) {
         // Badan error = bukti akun mati/habis kuota juga (2026-10-22): rate limit -> jeda, sisanya -> hapus.
         const errTxt = JSON.stringify(data.error);
         if (cand.harvestId) { if (/rate[_ ]limit/i.test(errTxt)) panenJeda(cand); else panenMati(cand, r.status); }
@@ -1777,7 +1783,7 @@ app.post("/v1/chat/completions", async (req, res) => {
       if (isBansosKey && cand.workerId && r.status >= 200 && r.status < 300 && data && data.usage && data.usage.total_tokens) recordBansosUsage(cand.workerId, data.usage.total_tokens);
       // Satu kandidat + badan error akun mati/habis kuota: tetap dicatat sebelum diteruskan (2026-10-22).
       // Respons sukses (2xx) dari akun panen: reset fail_count + cooldown-nya.
-      if (cand.harvestId && data && data.error && /insufficient|quota|revoked|authentication/i.test(JSON.stringify(data.error))) panenMati(cand, r.status);
+      if (cand.harvestId && data && data.error && /insufficient|quota|revoked|authentication|account_blocked|suspended/i.test(JSON.stringify(data.error))) panenMati(cand, r.status);
       else if (cand.harvestId && r.status >= 200 && r.status < 300) panenPulih(cand);
       return res.status(r.status).json(data);
     } catch (e) {
