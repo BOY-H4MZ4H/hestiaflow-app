@@ -629,53 +629,95 @@ async function tryAutoRegisterNova(provider) {
 async function tryAutoRegisterRooyai(provider) {
   const apiBase = "https://llm.rooyai.com/v1";
   const supaAnon = process.env.ROOYAI_SUPABASE_ANON_KEY || "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzg3NzIzNDIwLCJleHAiOjIxMDMwODM0MjB9.g5QfJJ3tuQKZf4m3K-k1lO60ixpkP6-g1fqnMKgF-oI";
-  const tempEmail = `rooyai${Date.now()}${Math.floor(Math.random()*9999)}@tempomail.id`;
-  const tempPassword = `Rooyai${Math.floor(100000+Math.random()*900000)}@#`;
-  const tempName = "HestiaFlow User";
+  // Anti-deteksi (perintah Hestia 2026-10-23): JANGAN telanjang polos — versi lama jalan
+  // langsung dari IP server + UA tetap "HestiaFlow/1.0" + nama akun "HestiaFlow User",
+  // hasilnya akun yang lahir di Hostless langsung di-suspend RooyAI ("account_blocked").
+  // Aturan baru: 1) lewat proxy yang SUDAH dicek hidup (yang mati dibuang, hanya yang OK
+  // dipakai), 2) User-Agent acak per akun, 3) nama orang acak, 4) verifikasi = CHAT ASLI
+  // lewat jalur yang sama (akun suspend-chat ketahuan mati, bukan cuma /models).
+  // Cadangan terakhir: jalur langsung (tetap dinilai tes chat yang sama).
+  const ROOYAI_NAMA = ["Budi Santoso","Agus Wijaya","Joko Pratama","Sari Lestari","Dewi Rahmawati","Rudi Saputra","Maya Putri","Andi Nugroho","Fitri Handayani","Dedi Kurniawan","Indah Permata","Bambang Sutrisno"];
+  let okProxies = [];
   try {
-    // 1) Register
-    const rg = await fetch("https://llm.rooyai.com/api/auth/register", {
-      method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "HestiaFlow/1.0" },
-      body: JSON.stringify({ name: tempName, email: tempEmail, password: tempPassword })
-    });
-    const rj = await rg.json().catch(() => null);
-    if (!rg.ok || !rj || rj.success !== true) { console.log("[rooyai] register failed"); return null; }
-    // 2) Supabase login
-    const lg = await fetch("https://authe.rooyai.com/auth/v1/token?grant_type=password", {
-      method: "POST", headers: { "apikey": supaAnon, "Content-Type": "application/json" },
-      body: JSON.stringify({ email: tempEmail, password: tempPassword })
-    });
-    const lj = await lg.json().catch(() => null);
-    const atoken = lj && lj.access_token;
-    if (!lg.ok || !atoken) { console.log("[rooyai] login failed"); return null; }
-    // 3) user_id dari JWT sub
-    let uid = null;
+    const raw = await fetchProxyList();
+    const cand = [...raw].sort(() => Math.random() - 0.5).slice(0, 40);
+    const cek = await Promise.all(cand.map(async (p) => {
+      const d = proxyDispatcher(p);
+      if (!d) return null;
+      try {
+        const r = await fetch(apiBase + "/models", { dispatcher: d, signal: AbortSignal.timeout(7000) });
+        return (r && r.status > 0) ? p : null;
+      } catch { return null; }
+    }));
+    okProxies = cek.filter(Boolean).slice(0, 4);
+    if (okProxies.length) { _proxyCache = { list: okProxies, at: Date.now() }; }
+    console.log(`[rooyai] proxy lolos cek: ${okProxies.length} dari ${cand.length} kandidat`);
+  } catch {}
+  const routes = [...okProxies.map((p) => ({ via: "proxy", host: p })), { via: "direct", host: null }];
+  for (const route of routes) {
+    const disp = route.host ? proxyDispatcher(route.host) : null;
+    if (route.host && !disp) continue;
+    const ua = randUA();
+    const nama = ROOYAI_NAMA[Math.floor(Math.random() * ROOYAI_NAMA.length)];
+    const domain = ["tempomail.id", "tempmailo.com"][Math.floor(Math.random() * 2)];
+    const tempEmail = `rooyai${Date.now()}${Math.floor(Math.random()*9999)}@${domain}`;
+    const tempPassword = `Rooyai${Math.floor(100000+Math.random()*900000)}@#`;
+    const F = async (url, opts = {}, ms = 25000) => {
+      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), ms);
+      try { return await fetch(url, { ...opts, signal: ctl.signal, ...(disp ? { dispatcher: disp } : {}) }); }
+      finally { clearTimeout(t); }
+    };
     try {
-      const payload = JSON.parse(Buffer.from(atoken.split(".")[1], "base64").toString());
-      uid = payload.sub;
-    } catch {}
-    if (!uid) { console.log("[rooyai] no uid"); return null; }
-    // 4) Generate key + hash
-    const rand = [...require("crypto").randomBytes(32)].map(b => "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"[b % 62]).join("");
-    const newKey = "sk-" + rand;
-    const keyHash = require("crypto").createHash("sha256").update(newKey).digest("hex");
-    const keyPrefix = newKey.slice(0, 12);
-    // 5) INSERT api_keys via Supabase REST
-    const ik = await fetch("https://authe.rooyai.com/rest/v1/api_keys", {
-      method: "POST",
-      headers: { "apikey": supaAnon, "Authorization": "Bearer " + atoken, "Content-Type": "application/json", "Prefer": "return=representation" },
-      body: JSON.stringify({ user_id: uid, key_hash: keyHash, key_prefix: keyPrefix, name: "HestiaFlow" })
-    });
-    if (ik.status !== 201) { console.log("[rooyai] key insert failed", ik.status); return null; }
-    // 6) Verify via /v1/models
-    let verified = false;
-    try {
-      const vr = await fetch(apiBase + "/models", { headers: { "Authorization": "Bearer " + newKey, "User-Agent": "HestiaFlow/1.0" } });
-      verified = vr.ok;
-    } catch {}
-    console.log(`[rooyai] auto-register ok, verified=${verified}`);
-    return { upstreamApiKey: newKey, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: verified };
-  } catch (e) { console.log("[rooyai] exception", e && e.message); return null; }
+      // 1) Register
+      const rg = await F("https://llm.rooyai.com/api/auth/register", {
+        method: "POST", headers: { "Content-Type": "application/json", "User-Agent": ua },
+        body: JSON.stringify({ name: nama, email: tempEmail, password: tempPassword })
+      });
+      const rj = await rg.json().catch(() => null);
+      if (!rg.ok || !rj || rj.success !== true) { console.log(`[rooyai] register failed via=${route.via} status=${rg.status}`); return null; }
+      // 2) Supabase login
+      const lg = await F("https://authe.rooyai.com/auth/v1/token?grant_type=password", {
+        method: "POST", headers: { "apikey": supaAnon, "Content-Type": "application/json", "User-Agent": ua },
+        body: JSON.stringify({ email: tempEmail, password: tempPassword })
+      });
+      const lj = await lg.json().catch(() => null);
+      const atoken = lj && lj.access_token;
+      if (!lg.ok || !atoken) { console.log(`[rooyai] login failed via=${route.via}`); return null; }
+      // 3) user_id dari JWT sub
+      let uid = null;
+      try { uid = JSON.parse(Buffer.from(atoken.split(".")[1], "base64").toString()).sub; } catch {}
+      if (!uid) { console.log("[rooyai] no uid"); return null; }
+      // 4) Generate key + hash
+      const rand = [...require("crypto").randomBytes(32)].map(b => "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"[b % 62]).join("");
+      const newKey = "sk-" + rand;
+      const keyHash = require("crypto").createHash("sha256").update(newKey).digest("hex");
+      const keyPrefix = newKey.slice(0, 12);
+      // 5) INSERT api_keys via Supabase REST
+      const ik = await F("https://authe.rooyai.com/rest/v1/api_keys", {
+        method: "POST",
+        headers: { "apikey": supaAnon, "Authorization": "Bearer " + atoken, "Content-Type": "application/json", "Prefer": "return=representation", "User-Agent": ua },
+        body: JSON.stringify({ user_id: uid, key_hash: keyHash, key_prefix: keyPrefix, name: nama.split(" ")[0] })
+      });
+      if (ik.status !== 201) { console.log("[rooyai] key insert failed", ik.status); return null; }
+      // 6) Verifikasi CHAT ASLI lewat jalur kelahiran yang sama.
+      let chatOk = false, chatStatus = 0;
+      try {
+        const cr = await F(apiBase + "/chat/completions", {
+          method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + newKey, "User-Agent": ua },
+          body: JSON.stringify({ model: "gpt-4o-mini", messages: [{ role: "user", content: "hi" }], max_tokens: 5 })
+        }, 30000);
+        chatStatus = cr.status;
+        chatOk = cr.ok;
+        await cr.text().catch(() => "");
+      } catch {}
+      console.log(`[rooyai] auto-register via=${route.via} chatVerify=${chatOk} status=${chatStatus}`);
+      return { upstreamApiKey: newKey, upstreamBaseUrl: apiBase, tempEmail, tempPassword, live: chatOk };
+    } catch (e) {
+      console.log(`[rooyai] route ${route.via} gagal jaringan (${e && e.message ? String(e.message).slice(0, 60) : "?"}), coba jalur berikutnya`);
+      continue;
+    }
+  }
+  return null;
 }
 
 // ZeroLimitAI auto-register (2026-10-18). Flow: register (no CAPTCHA, no email verification required)
