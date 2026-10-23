@@ -48,8 +48,8 @@ const TIER_PRICE = { plus: { amount: "Rp 5.000", dur: "3 Hari" }, pro: { amount:
 function tierShowcase() {
   return `<div class="section"><h2>Pilihan Paket Tier</h2>
   <div class="grid tiers">${TIERS.map((t) => {
-    const isLockedCard = t.slug === "premium"; // Plus dibuka 2026-10-23; Pro dibuka 2026-10-24 (Vega)
-    const cardClick = isLockedCard ? "showComingSoon()" : "";
+    const isLockedCard = false; // Semua kartu dibuka 2026-10-24 — akses tier berbayar diatur vocher (pangkat paket user), bukan gembok kartu
+    const cardClick = "";
     return `
     <div class="card tier ${t.slug === "premium" ? "premium" : ""}${isLockedCard ? " locked-card" : ""}" ${isLockedCard ? `onclick="${cardClick}" style="cursor:pointer;position:relative;"` : ""}>
       ${isLockedCard ? `<div class="card-lock-overlay">🔒</div>` : ""}
@@ -336,7 +336,7 @@ function renderHarvestSidebar() {
   const myRank = TIER_RANK[(ME && ME.tier_slug) || "gratis"] ?? 0;
   const selItem = items.find((x) => x.p.id === selectedHarvestProviderId);
   if (!selectedHarvestProviderId || !selItem || (TIER_RANK[selItem.tier.slug] ?? 0) > myRank) selectedHarvestProviderId = (items.find((x) => (TIER_RANK[x.tier.slug] ?? 0) <= myRank) || items[0]).p.id;
-  el.innerHTML = items.map((x) => { const locked = (TIER_RANK[x.tier.slug] ?? 0) > myRank; const comingSoon = x.tier.slug === "premium"; const isLocked = locked || comingSoon; const clickFn = comingSoon ? "showComingSoon()" : `selectHarvestProvider(${x.p.id})`; return `<div class="tier-side-opt${x.p.id === selectedHarvestProviderId ? " sel" : ""}${isLocked ? " locked" : ""}" data-pid="${x.p.id}" onclick="${clickFn}">${isLocked ? "🔒 " : ""}${esc(short[x.tier.slug] || x.tier.name)} • ${x.p.modelCount} Model</div>`; }).join("");
+  el.innerHTML = items.map((x) => { const locked = (TIER_RANK[x.tier.slug] ?? 0) > myRank; const isLocked = locked; const clickFn = `selectHarvestProvider(${x.p.id})`; return `<div class="tier-side-opt${x.p.id === selectedHarvestProviderId ? " sel" : ""}${isLocked ? " locked" : ""}" data-pid="${x.p.id}" onclick="${clickFn}">${isLocked ? "🔒 " : ""}${esc(short[x.tier.slug] || x.tier.name)} • ${x.p.modelCount} Model</div>`; }).join("");
   const cur = items.find((x) => x.p.id === selectedHarvestProviderId);
   const lbl = $("#tierPickerLabel"); if (lbl && cur) lbl.textContent = `${short[cur.tier.slug] || cur.tier.name} • ${cur.p.modelCount} Model`;
   updateHarvestLimitUI();
