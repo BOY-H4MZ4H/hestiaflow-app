@@ -1060,7 +1060,7 @@ async function tryAutoRegisterAvalai(provider) {
         const j = await r.json().catch(() => null);
         const tok = j && (j.csrfToken || j.csrf_token);
         if (tok) { csrfDiag = csrfDiag + " src=json tokAda=true"; return tok; } csrfDiag = csrfDiag + " tokJson=tidak-ada";
-      } catch {}
+      } catch (e) { csrfDiag = csrfDiag + " err=" + String(e && e.message ? e.message : "error").slice(0, 200); }
     }
     if (!S.jar.get("csrftoken")) csrfDiag = csrfDiag + " hasil=gagal"; return S.jar.get("csrftoken") || "";
   };
