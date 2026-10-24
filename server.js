@@ -1159,21 +1159,21 @@ async function tryAutoRegisterAvalai(provider) {
       if (!inbox) { console.log("[vega] inbox gagal dibuat noopmail=" + potongDiag(inboxDiag.pertama) + " minuteinbox=" + potongDiag(inboxDiag.cadangan) + " noopmailHome=" + potongDiag(inboxDiag.pertamaHome) + " minuteCsrf=" + potongDiag(inboxDiag.cadanganCsrf) + " minuteNewEmail=" + potongDiag(inboxDiag.cadanganNewEmail) + " minuteIndex=" + potongDiag(inboxDiag.cadanganIndexBentuk)); continue; }
       const email = inbox.email;
       // 2) Kirim OTP: endpoint LAMA dulu (terbukti kode tiba), baru endpoint baru.
-      let otpSent = false;
+      let otpSent = false; const otpDiag = [];
       for (let attempt = 1; attempt <= 3 && !otpSent; attempt++) {
         const h = await authH(S, "/chat");
-        if (!h["X-CSRFToken"]) { await sleep(4000); continue; }
+        if (!h["X-CSRFToken"]) { otpDiag.push("tanpa-CSRF"); await sleep(4000); continue; }
         for (const path of ["/api/auth/v1/login/", "/api/auth/v1/request-otp/"]) {
           try {
             const r = await S.F(authBase + path, { method: "POST", headers: { ...h, "Content-Type": "application/json" }, body: JSON.stringify({ identifier: email, type: "email" }) });
             const d = await r.json().catch(() => ({}));
-            console.log(`[vega] kirim OTP ${path} -> HTTP ${r.status}`);
+            console.log(`[vega] kirim OTP ${path} -> HTTP ${r.status}`); otpDiag.push(path + "=HTTP " + r.status);
             if (r.status === 200 && d && typeof d === "object" && !("error" in d) && d.requires_verification !== false) { otpSent = true; break; }
-          } catch { console.log(`[vega] kirim OTP ${path} timeout`); }
+          } catch (e) { console.log(`[vega] kirim OTP ${path} timeout`); otpDiag.push(path + "=" + potongDiag(e && e.message ? e.message : "timeout")); }
         }
         if (!otpSent) await sleep(4000);
       }
-      if (!otpSent) { console.log("[vega] OTP gagal dikirim"); continue; }
+      if (!otpSent) { console.log("[vega] OTP gagal dikirim " + (otpDiag.length ? otpDiag.map((v) => potongDiag(v)).join(" | ") : "tidak ada percobaan terkirim")); continue; }
       // 3) Poll inbox (maks 150 detik).
       const code = await inbox.poll(150000);
       if (!code) { console.log("[vega] OTP tidak tiba"); continue; }
