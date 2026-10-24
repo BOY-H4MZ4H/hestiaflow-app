@@ -1372,7 +1372,7 @@ async function doHarvest({ userId, providerId, count }) {
   if (!provider) throw new Error("provider_not_found");
   if (!Number.isInteger(count) || count < 1 || count > 5000) throw new Error("count_must_be_1_to_5000");
   const tier = db.prepare("SELECT * FROM tiers WHERE id=?").get(provider.tier_id);
-  // Pro + Premium DIBUKA 2026-10-24 (perintah Hestia): gembok blanket dicabut.
+  if (tier && tier.slug === "pro" && !proEnabled()) throw new Error("Tier Pro sedang dikunci (Segera Hadir)."); // Pro + Premium DIBUKA 2026-10-24 (perintah Hestia): gembok blanket dicabut.
   // Akses panen diatur gerbang pangkat di bawah — hanya user yang paketnya
   // (dari vocher/admin) mencakup tier ini yang bisa panen. Pro kini bermesin
   // Vega; Premium bermesin Stella (keduanya live).
@@ -1532,7 +1532,7 @@ app.get("/api/public/providers/:id/models", (req, res) => {
 });
 app.get("/api/public/tiers", (req, res) => {
   const tiers = db.prepare("SELECT * FROM tiers ORDER BY sort_order").all().map((t) => ({
-    id: t.id, slug: t.slug, name: t.name, audienceLabel: t.audience_label, badge: t.badge, maxModels: t.max_models,
+    id: t.id, slug: t.slug, name: t.name, audienceLabel: t.audience_label, badge: t.badge, maxModels: t.max_models, locked: t.slug === "pro" && !proEnabled(),
     providers: db.prepare("SELECT * FROM providers WHERE tier_id=? ORDER BY sort_order").all(t.id).map(publicProvider),
   }));
   res.json({ ok: true, tiers });
@@ -1555,7 +1555,7 @@ const BANSOS_PER_ACCOUNT_DAILY = 500000;
 function bansosProvider() { return db.prepare("SELECT * FROM providers WHERE brand_name='Bansos'").get() || null; }
 // Saklar gembok Bansos (perintah Hestia 2026-10-23): env BANSOS_ENABLED=0 mengunci total —
 // klaim key baru ditolak dan key bansos yang beredar tidak bisa dipakai. Hapus env / set 1 untuk membuka.
-function bansosEnabled() { return process.env.BANSOS_ENABLED !== "0"; }
+function bansosEnabled() { return process.env.BANSOS_ENABLED !== "0"; } /* Kunci total Pro (perintah Hestia 2026-10-25): Pro terkunci secara default, dibuka dengan PRO_ENABLED=1. */ function proEnabled() { return process.env.PRO_ENABLED === "1";}
 function bansosDay() { return new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10); }
 function bansosPool() {
   const p = bansosProvider();
@@ -1632,7 +1632,7 @@ app.post("/api/voucher/redeem", requireAuth, (req, res) => {
   if (raw.length !== 16) return res.status(400).json({ ok: false, error: "Kode vocher harus 16 karakter." });
   const v = db.prepare("SELECT * FROM vouchers WHERE REPLACE(code,'-','')=?").get(raw);
   if (!v) return res.status(404).json({ ok: false, error: "Kode vocher tidak ditemukan." });
-  if (v.used) return res.status(400).json({ ok: false, error: "Kode vocher sudah dipakai." });
+  if (v.used) return res.status(400).json({ ok: false, error: "Kode vocher sudah dipakai." }); if (v.tier_slug === "pro" && !proEnabled()) return res.status(403).json({ ok: false, error: "Tier Pro sedang dikunci (Segera Hadir)." });
   const expires = new Date(Date.now() + (v.duration_days || 0) * 86400000).toISOString();
   db.prepare("UPDATE vouchers SET used=1, used_by=?, used_at=datetime('now') WHERE id=?").run(req.user.id, v.id);
   db.prepare("UPDATE users SET tier_slug=?, tier_expires_at=? WHERE id=?").run(v.tier_slug, expires, req.user.id);
@@ -1965,7 +1965,7 @@ app.post("/v1/chat/completions", async (req, res) => {
   // 2) Provider-level upstream (operator-configured).
   // 3) Active worker key for this provider (provider URL + worker key).
   const provider = key.provider_id ? db.prepare("SELECT * FROM providers WHERE id=?").get(key.provider_id) : null;
-  let upstreamUrl = null, upstreamKey = null;
+  if (provider && !proEnabled() && (provider.brand_name === "Vega" || ((provider.tier_id ? db.prepare("SELECT slug FROM tiers WHERE id=?").get(provider.tier_id) : null) || {}).slug === "pro" || ((key.tier_id ? db.prepare("SELECT slug FROM tiers WHERE id=?").get(key.tier_id) : null) || {}).slug === "pro")) return res.status(403).json({ error: { message: "Tier Pro sedang dikunci (Segera Hadir).", type: "invalid_request_error", param: null, code: "pro_locked" } }); let upstreamUrl = null, upstreamKey = null;
   let upstreamCandidates = [];
   // BANSOS: key anonim memakai pool akun (workers) bergiliran, yang paling sedikit dipakai duluan.
   const isBansosKey = !!(key.anon_id && provider);
