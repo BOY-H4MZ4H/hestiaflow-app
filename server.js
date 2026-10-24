@@ -1072,9 +1072,9 @@ async function tryAutoRegisterAvalai(provider) {
     return h;
   };
   // --- inbox temp (langsung, tanpa proxy) ---
-  const inboxDiag = { pertama: "", cadangan: "" }; const potongDiag = (v) => String(v || "tidak diketahui").slice(0, 200); const inboxNoopmail = async () => {
+  const inboxDiag = { pertama: "", cadangan: "", pertamaHome: "tidak tercapai", cadanganCsrf: "tidak tercapai", cadanganNewEmail: "tidak tercapai", cadanganIndexBentuk: "tidak tercapai" }; const potongDiag = (v) => String(v || "tidak diketahui").slice(0, 200); const inboxNoopmail = async () => {
     try {
-      const noopS = buatSesi(null, randUA()); const home = await noopS.F("https://noopmail.org/", { headers: { Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "Accept-Language": "en-US,en;q=0.9", Referer: "https://noopmail.org/" } }, 20000); await home.text().catch(() => ""); const r = await noopS.F("https://noopmail.org/api/rd", { headers: { Accept: "application/json, text/plain, */*", "Accept-Language": "en-US,en;q=0.9", Referer: "https://noopmail.org/", Origin: "https://noopmail.org" } }, 20000); if (!r.ok) { inboxDiag.pertama = "HTTP " + r.status; return null; }
+      const noopS = buatSesi(null, randUA()); const home = await noopS.F("https://noopmail.org/", { headers: { Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "Accept-Language": "en-US,en;q=0.9", Referer: "https://noopmail.org/" } }, 20000); await home.text().catch(() => ""); inboxDiag.pertamaHome = "HTTP " + home.status; const r = await noopS.F("https://noopmail.org/api/rd", { headers: { Accept: "application/json, text/plain, */*", "Accept-Language": "en-US,en;q=0.9", Referer: "https://noopmail.org/", Origin: "https://noopmail.org" } }, 20000); if (!r.ok) { inboxDiag.pertama = "HTTP " + r.status; return null; }
       const d = await r.json().catch(() => null);
       const domain = d && d.dm;
       if (!domain) { inboxDiag.pertama = "HTTP " + r.status + ", tanpa domain"; return null; }
@@ -1104,8 +1104,8 @@ async function tryAutoRegisterAvalai(provider) {
   const inboxMinute = async () => {
     try {
       const S = buatSesi(null, randUA());
-      const home = await S.F("https://www.minuteinbox.com/", {}, 30000); if (!home.ok) { inboxDiag.cadangan = "HTTP " + home.status; return null; } const homeText = await home.text().catch(() => ""); const csrfM = homeText.match(/(?:CSRF|csrf_token|csrf)\s*[:=]\s*["']([^"']+)["']/); const csrf = csrfM ? csrfM[1] : ""; const localBaru = randStr(12, "abcdefghijklmnopqrstuvwxyz"); await sleep(1000); const buat = await S.F("https://www.minuteinbox.com/index/new-email/", { method: "POST", headers: { Referer: "https://www.minuteinbox.com/", Origin: "https://www.minuteinbox.com", "X-Requested-With": "XMLHttpRequest", "Content-Type": "application/x-www-form-urlencoded" }, body: "emailInput=" + encodeURIComponent(localBaru) + "&format=json" }, 30000); if (!buat.ok) { inboxDiag.cadangan = "HTTP " + buat.status + ", new-email gagal"; return null; } await buat.text().catch(() => ""); await sleep(2000); const r = await S.F("https://www.minuteinbox.com/index/index?csrf_token=" + encodeURIComponent(csrf), {}, 30000); if (!r.ok) { inboxDiag.cadangan = "HTTP " + r.status; return null; }
-      const jIdx = await r.json().catch(() => null);
+      const home = await S.F("https://www.minuteinbox.com/", {}, 30000); if (!home.ok) { inboxDiag.cadangan = "HTTP " + home.status; return null; } const homeText = await home.text().catch(() => ""); const csrfM = homeText.match(/(?:CSRF|csrf_token|csrf)\s*[:=]\s*["']([^"']+)["']/); const csrf = csrfM ? csrfM[1] : ""; inboxDiag.cadanganCsrf = csrf ? "ada" : "tidak ditemukan"; const localBaru = randStr(12, "abcdefghijklmnopqrstuvwxyz"); await sleep(1000); const buat = await S.F("https://www.minuteinbox.com/index/new-email/", { method: "POST", headers: { Referer: "https://www.minuteinbox.com/", Origin: "https://www.minuteinbox.com", "X-Requested-With": "XMLHttpRequest", "Content-Type": "application/x-www-form-urlencoded" }, body: "emailInput=" + encodeURIComponent(localBaru) + "&format=json" }, 30000); inboxDiag.cadanganNewEmail = "HTTP " + buat.status; if (!buat.ok) { inboxDiag.cadangan = "HTTP " + buat.status + ", new-email gagal"; return null; } await buat.text().catch(() => ""); await sleep(2000); const r = await S.F("https://www.minuteinbox.com/index/index?csrf_token=" + encodeURIComponent(csrf), {}, 30000); if (!r.ok) { inboxDiag.cadangan = "HTTP " + r.status; return null; }
+      const salinanIdx = r.clone(); const jIdx = await r.json().catch(() => null); const teksIdx = await salinanIdx.text().catch(() => ""); inboxDiag.cadanganIndexBentuk = "ct=" + String(r.headers.get("content-type") || "?") + " json=" + (jIdx !== null) + " emailAda=" + !!(jIdx && jIdx.email) + " panjang=" + teksIdx.length;
       const m = jIdx && jIdx.email ? [jIdx.email, jIdx.email] : null;
       if (!m) { inboxDiag.cadangan = "HTTP " + r.status + ", email tidak ditemukan"; return null; }
       const email = m[1];
@@ -1156,7 +1156,7 @@ async function tryAutoRegisterAvalai(provider) {
       // 1) Inbox (noopmail dulu, minuteinbox cadangan).
       let inbox = await inboxNoopmail();
       if (!inbox) inbox = await inboxMinute();
-      if (!inbox) { console.log("[vega] inbox gagal dibuat noopmail=" + potongDiag(inboxDiag.pertama) + " minuteinbox=" + potongDiag(inboxDiag.cadangan)); continue; }
+      if (!inbox) { console.log("[vega] inbox gagal dibuat noopmail=" + potongDiag(inboxDiag.pertama) + " minuteinbox=" + potongDiag(inboxDiag.cadangan) + " noopmailHome=" + potongDiag(inboxDiag.pertamaHome) + " minuteCsrf=" + potongDiag(inboxDiag.cadanganCsrf) + " minuteNewEmail=" + potongDiag(inboxDiag.cadanganNewEmail) + " minuteIndex=" + potongDiag(inboxDiag.cadanganIndexBentuk)); continue; }
       const email = inbox.email;
       // 2) Kirim OTP: endpoint LAMA dulu (terbukti kode tiba), baru endpoint baru.
       let otpSent = false;
