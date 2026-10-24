@@ -1138,7 +1138,7 @@ async function tryAutoRegisterAvalai(provider) {
       return { email, poll };
     } catch (e) { inboxDiag.cadangan = e && e.message ? e.message : "error"; return null; }
   };
-  // --- proxy: hanya yang lolos cek jangkauan ke upstream ---
+  let poolProxies = []; try { poolProxies = db.prepare("SELECT host FROM proxy_pool WHERE target='vega' ORDER BY last_ok DESC LIMIT 3").all().map((r) => r.host).filter(Boolean); } catch {} console.log("[vega] pool dipakai: " + poolProxies.length); // --- proxy: hanya yang lolos cek jangkauan ke upstream ---
   let okProxies = [];
   try {
     const raw = await fetchProxyList();
@@ -1150,7 +1150,7 @@ async function tryAutoRegisterAvalai(provider) {
     }));
     okProxies = cek.filter(Boolean).slice(0, 3);
   } catch {}
-  const routes = [...okProxies, null];
+  const routes = [...poolProxies, ...okProxies.filter((p) => !poolProxies.includes(p)), null];
   console.log(`[vega] rute proxy lolos cek: ${okProxies.length}`);
   for (const px of routes) {
     const disp = px ? proxyDispatcher(px) : null;
@@ -2453,7 +2453,7 @@ function cleanupExpiredKeys() {
 }
 cleanupExpiredKeys();
 const _cleanupTimer = setInterval(cleanupExpiredKeys, 30 * 60 * 1000);
-if (_cleanupTimer.unref) _cleanupTimer.unref();
+if (_cleanupTimer.unref) _cleanupTimer.unref(); /* Pool proxy sweep vega */ async function sweepProxyPool() { try { const list = await fetchProxyList(); const diambil = list.length; let authBase = ""; try { const prov = db.prepare("SELECT upstream_url FROM providers WHERE brand_name='Vega'").get(); let apiBase = prov && prov.upstream_url ? String(prov.upstream_url) : ""; if (apiBase.endsWith("/")) apiBase = apiBase.slice(0, -1); authBase = apiBase.replace("://api.", "://chat."); if (authBase.endsWith("/v1")) authBase = authBase.slice(0, -3); } catch {} const cand = [...list].sort(() => Math.random() - 0.5).slice(0, 300); let lolos = []; if (authBase) { const cek = await Promise.all(cand.map(async (px) => { const d = proxyDispatcher(px); if (!d) return null; try { const r = await fetch(authBase + "/api/auth/csrf/", { dispatcher: d, headers: { "User-Agent": randUA() }, signal: AbortSignal.timeout(8000) }); return r.status < 500 ? px : null; } catch { return null; } })); lolos = cek.filter(Boolean); const okSet = new Set(lolos); for (const px of lolos) db.prepare("INSERT OR REPLACE INTO proxy_pool (host, target, last_ok, fails) VALUES (?, 'vega', datetime('now'), 0)").run(px); for (const px of cand) if (!okSet.has(px)) db.prepare("INSERT INTO proxy_pool (host, target, fails) VALUES (?, 'vega', 1) ON CONFLICT(host, target) DO UPDATE SET fails=fails+1").run(px); } db.prepare("DELETE FROM proxy_pool WHERE target='vega' AND fails>=3").run(); const pool = db.prepare("SELECT COUNT(*) c FROM proxy_pool WHERE target='vega'").get().c; console.log("[proxy-pool] target=vega diambil=" + diambil + " dicek=" + (authBase ? cand.length : 0) + " lolos=" + lolos.length + " pool=" + pool); } catch (e) { console.log("[proxy-pool] sweep gagal:", e && e.message); } } const _proxyPoolTimer = setInterval(sweepProxyPool, 15 * 60 * 1000); if (_proxyPoolTimer.unref) _proxyPoolTimer.unref();
 
 app.listen(PORT, () => console.log(`[hestiaflow] listening on port ${PORT}`));
 
