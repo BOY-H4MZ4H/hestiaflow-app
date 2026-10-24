@@ -1051,18 +1051,18 @@ async function tryAutoRegisterAvalai(provider) {
     };
     return { F, jar };
   };
-  const csrfDari = async (S, referer) => {
-    if (S.jar.get("csrftoken")) return S.jar.get("csrftoken");
+  let csrfDiag = ""; const csrfDari = async (S, referer) => { csrfDiag = "";
+    if (S.jar.get("csrftoken")) { csrfDiag = "sudah-ada-cookie ck=" + [...S.jar.keys()].join(","); return S.jar.get("csrftoken"); }
     for (const method of ["POST", "GET"]) {
       try {
-        const r = await S.F(authBase + "/api/auth/csrf/", { method, headers: { Referer: authBase + referer } });
-        if (S.jar.get("csrftoken")) return S.jar.get("csrftoken");
+        csrfDiag = csrfDiag + (csrfDiag ? " | " : "") + method + " req ck=" + [...S.jar.keys()].join(","); const r = await S.F(authBase + "/api/auth/csrf/", { method, headers: { Referer: authBase + referer } }); csrfDiag = csrfDiag + " st=" + r.status + " ckAda=" + !!S.jar.get("csrftoken") + " ck=" + [...S.jar.keys()].join(",");
+        if (S.jar.get("csrftoken")) { csrfDiag = csrfDiag + " src=cookie"; return S.jar.get("csrftoken"); }
         const j = await r.json().catch(() => null);
         const tok = j && (j.csrfToken || j.csrf_token);
-        if (tok) return tok;
+        if (tok) { csrfDiag = csrfDiag + " src=json tokAda=true"; return tok; } csrfDiag = csrfDiag + " tokJson=tidak-ada";
       } catch {}
     }
-    return S.jar.get("csrftoken") || "";
+    if (!S.jar.get("csrftoken")) csrfDiag = csrfDiag + " hasil=gagal"; return S.jar.get("csrftoken") || "";
   };
   const authH = async (S, referer, force) => {
     if (force) S.jar.delete("csrftoken");
@@ -1162,7 +1162,7 @@ async function tryAutoRegisterAvalai(provider) {
       let otpSent = false; const otpDiag = [];
       for (let attempt = 1; attempt <= 3 && !otpSent; attempt++) {
         const h = await authH(S, "/chat");
-        if (!h["X-CSRFToken"]) { otpDiag.push("tanpa-CSRF"); await sleep(4000); continue; }
+        if (!h["X-CSRFToken"]) { otpDiag.push("tanpa-CSRF " + potongDiag(csrfDiag)); await sleep(4000); continue; }
         for (const path of ["/api/auth/v1/login/", "/api/auth/v1/request-otp/"]) {
           try {
             const r = await S.F(authBase + path, { method: "POST", headers: { ...h, "Content-Type": "application/json" }, body: JSON.stringify({ identifier: email, type: "email" }) });
