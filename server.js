@@ -1074,7 +1074,7 @@ async function tryAutoRegisterAvalai(provider) {
   // --- inbox temp (langsung, tanpa proxy) ---
   const inboxDiag = { pertama: "", cadangan: "" }; const potongDiag = (v) => String(v || "tidak diketahui").slice(0, 200); const inboxNoopmail = async () => {
     try {
-      const r = await fetch("https://noopmail.org/api/rd", { headers: { "User-Agent": randUA() }, signal: AbortSignal.timeout(20000) }); if (!r.ok) { inboxDiag.pertama = "HTTP " + r.status; return null; }
+      const noopS = buatSesi(null, randUA()); const home = await noopS.F("https://noopmail.org/", { headers: { Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "Accept-Language": "en-US,en;q=0.9", Referer: "https://noopmail.org/" } }, 20000); await home.text().catch(() => ""); const r = await noopS.F("https://noopmail.org/api/rd", { headers: { Accept: "application/json, text/plain, */*", "Accept-Language": "en-US,en;q=0.9", Referer: "https://noopmail.org/", Origin: "https://noopmail.org" } }, 20000); if (!r.ok) { inboxDiag.pertama = "HTTP " + r.status; return null; }
       const d = await r.json().catch(() => null);
       const domain = d && d.dm;
       if (!domain) { inboxDiag.pertama = "HTTP " + r.status + ", tanpa domain"; return null; }
@@ -1084,7 +1084,7 @@ async function tryAutoRegisterAvalai(provider) {
         const deadline = Date.now() + waitMs;
         while (Date.now() < deadline) {
           try {
-            const rr = await fetch("https://noopmail.org/api/c", { method: "POST", headers: { "User-Agent": randUA(), "Content-Type": "application/json" }, body: JSON.stringify({ e: local, d: domain }), signal: AbortSignal.timeout(20000) });
+            const rr = await noopS.F("https://noopmail.org/api/c", { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json, text/plain, */*", "Accept-Language": "en-US,en;q=0.9", Referer: "https://noopmail.org/", Origin: "https://noopmail.org" }, body: JSON.stringify({ e: local, d: domain }), signal: AbortSignal.timeout(20000) });
             const msgs = await rr.json().catch(() => null);
             if (Array.isArray(msgs)) for (const m of msgs) {
               const frm = ((m.from || "") + " " + (m.subject || "")).toLowerCase();
@@ -1104,16 +1104,16 @@ async function tryAutoRegisterAvalai(provider) {
   const inboxMinute = async () => {
     try {
       const S = buatSesi(null, randUA());
-      const r = await S.F("https://minuteinbox.com/index/index", {}, 20000); if (!r.ok) { inboxDiag.cadangan = "HTTP " + r.status; return null; }
-      const t = await r.text().catch(() => "");
-      const m = t.match(/data-email="([^"]+)"/) || t.match(/([a-zA-Z0-9._-]+@minafter\.com)/);
+      const home = await S.F("https://www.minuteinbox.com/", {}, 30000); if (!home.ok) { inboxDiag.cadangan = "HTTP " + home.status; return null; } const homeText = await home.text().catch(() => ""); const csrfM = homeText.match(/(?:CSRF|csrf_token|csrf)\s*[:=]\s*["']([^"']+)["']/); const csrf = csrfM ? csrfM[1] : ""; const localBaru = randStr(12, "abcdefghijklmnopqrstuvwxyz"); await sleep(1000); const buat = await S.F("https://www.minuteinbox.com/index/new-email/", { method: "POST", headers: { Referer: "https://www.minuteinbox.com/", Origin: "https://www.minuteinbox.com", "X-Requested-With": "XMLHttpRequest", "Content-Type": "application/x-www-form-urlencoded" }, body: "emailInput=" + encodeURIComponent(localBaru) + "&format=json" }, 30000); if (!buat.ok) { inboxDiag.cadangan = "HTTP " + buat.status + ", new-email gagal"; return null; } await buat.text().catch(() => ""); await sleep(2000); const r = await S.F("https://www.minuteinbox.com/index/index?csrf_token=" + encodeURIComponent(csrf), {}, 30000); if (!r.ok) { inboxDiag.cadangan = "HTTP " + r.status; return null; }
+      const jIdx = await r.json().catch(() => null);
+      const m = jIdx && jIdx.email ? [jIdx.email, jIdx.email] : null;
       if (!m) { inboxDiag.cadangan = "HTTP " + r.status + ", email tidak ditemukan"; return null; }
       const email = m[1];
       const poll = async (waitMs) => {
         const deadline = Date.now() + waitMs; const seen = new Set();
         while (Date.now() < deadline) {
           try {
-            const rr = await S.F("https://minuteinbox.com/index/refresh", {}, 20000);
+            const rr = await S.F("https://www.minuteinbox.com/index/refresh", {}, 20000);
             const tt = await rr.text().catch(() => "");
             const re = /data-id="(\d+)"[^>]*>[^]*?avalai/gi;
             let mm;
@@ -1121,7 +1121,7 @@ async function tryAutoRegisterAvalai(provider) {
               const mid = mm[1];
               if (seen.has(mid)) continue;
               seen.add(mid);
-              const r2 = await S.F("https://minuteinbox.com/email/" + mid, {}, 20000);
+              const r2 = await S.F("https://www.minuteinbox.com/email/" + mid, {}, 20000);
               const t2 = await r2.text().catch(() => "");
               const cm = t2.match(/\b(\d{6})\b/);
               if (cm) return cm[1];
