@@ -759,7 +759,7 @@ async function tryAutoRegisterRooyai(provider) {
         body: JSON.stringify({ name: nama, email: tempEmail, password: tempPassword })
       });
       const rj = await rg.json().catch(() => null);
-      if (!rg.ok || !rj || rj.success !== true) { console.log(`[rooyai] register failed via=${route.via} status=${rg.status}`); return null; }
+      if (!rg.ok || !rj || rj.success !== true) { const rb = rj ? JSON.stringify(rj).slice(0, 300) : "no-body"; console.log(`[rooyai] register failed via=${route.via} status=${rg.status} body=${rb}`); return null; }
       // 2) Supabase login
       const lg = await F("https://authe.rooyai.com/auth/v1/token?grant_type=password", {
         method: "POST", headers: { "apikey": supaAnon, "Content-Type": "application/json", "User-Agent": ua },
