@@ -2450,3 +2450,22 @@ const _cleanupTimer = setInterval(cleanupExpiredKeys, 30 * 60 * 1000);
 if (_cleanupTimer.unref) _cleanupTimer.unref();
 
 app.listen(PORT, () => console.log(`[hestiaflow] listening on port ${PORT}`));
+
+// ---------- fresh-start katalog (2026-10-24): pastikan Luna/Aurora/Stella tampil ----------
+(function freshStartCatalog() {
+  try {
+    db.prepare("INSERT OR IGNORE INTO tiers (slug,name,audience_label,badge,max_models,sort_order) VALUES ('gratis','Gratis','KHUSUS PENGGUNA GRATIS','TIER GRATIS',8,1)").run();
+    db.prepare("INSERT OR IGNORE INTO tiers (slug,name,audience_label,badge,max_models,sort_order) VALUES ('plus','Plus','UNTUK PENGGUNA PLUS / BERBAYAR','TIER PLUS',NULL,2)").run();
+    db.prepare("INSERT OR IGNORE INTO tiers (slug,name,audience_label,badge,max_models,sort_order) VALUES ('premium','Premium','PALING MAHAL','★ TIER PREMIUM',NULL,4)").run();
+    const FRESH_LUNA_MODELS = ["auto","minimax/minimax-m3.1-flash:free","google/gemma-4-31b-it:free","google/gemma-4-26b-a4b-it:free","xingchen-agi/xing4.0-29b-a4b:free","cohere/north-mini-code:free","recursive/flint-v1.0:free","dots-studio/dots-3-note-preview:free"];
+    db.prepare("INSERT INTO providers (tier_id,brand_name,tagline,model_count,model_list_json,model_notes_json,credit_note,default_credit,sort_order,upstream_url) SELECT (SELECT id FROM tiers WHERE slug='gratis'),?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM providers WHERE brand_name='Luna')").run("Luna", "8 model gratis untuk semua.", 8, JSON.stringify(FRESH_LUNA_MODELS), "{}", "100 calls/hari per akun.", 0, 1, "https://www.zerolimitai.com/api/v1");
+    db.prepare("INSERT INTO providers (tier_id,brand_name,tagline,model_count,model_list_json,model_notes_json,credit_note,default_credit,sort_order,upstream_url) SELECT (SELECT id FROM tiers WHERE slug='plus'),?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM providers WHERE brand_name='Aurora')").run("Aurora", "Cahaya pertama di gerbang kecerdasan.", 10, JSON.stringify(AURORA_MODELS), "{}", "$0.20 per akun terverifikasi.", 200000, 1, process.env.PROVIDER_AURORA_UPSTREAM_URL || "");
+    db.prepare("INSERT INTO providers (tier_id,brand_name,tagline,model_count,model_list_json,model_notes_json,credit_note,default_credit,sort_order,upstream_url) SELECT (SELECT id FROM tiers WHERE slug='premium'),?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM providers WHERE brand_name='Stella')").run("Stella", "Bintang paling terang di langit HestiaFlow.", 235, "[]", "{}", "235 model premium! $0.25 per akun.", 0, 1, process.env.PROVIDER_STELLA_UPSTREAM_URL || "");
+    db.prepare("UPDATE providers SET tier_id=(SELECT id FROM tiers WHERE slug='gratis') WHERE brand_name IN ('Luna','Zerolimit') AND (tier_id IS NULL OR tier_id<>(SELECT id FROM tiers WHERE slug='gratis'))").run();
+    db.prepare("UPDATE providers SET tier_id=(SELECT id FROM tiers WHERE slug='plus') WHERE brand_name='Aurora' AND (tier_id IS NULL OR tier_id<>(SELECT id FROM tiers WHERE slug='plus'))").run();
+    db.prepare("UPDATE providers SET tier_id=(SELECT id FROM tiers WHERE slug='premium') WHERE brand_name='Stella' AND (tier_id IS NULL OR tier_id<>(SELECT id FROM tiers WHERE slug='premium'))").run();
+    db.prepare("UPDATE providers SET model_count=8, model_list_json=? WHERE brand_name IN ('Luna','Zerolimit')").run(JSON.stringify(FRESH_LUNA_MODELS));
+    db.prepare("UPDATE providers SET model_count=10, model_list_json=? WHERE brand_name='Aurora'").run(JSON.stringify(AURORA_MODELS));
+    db.prepare("UPDATE providers SET model_count=235 WHERE brand_name='Stella'").run();
+  } catch (e) { console.log("[fresh-start-katalog] gagal:", e && e.message); }
+})();
