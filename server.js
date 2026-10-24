@@ -1853,7 +1853,7 @@ app.put("/api/admin/settings", requireAdmin, (req, res) => {
   }
   res.json({ ok: true });
 });
-app.get("/api/admin/harvest-logs", requireAdmin, (req, res) => {
+app.post("/api/admin/proxy-pool/import", requireAdmin, (req, res) => { try { const proxies = req.body && req.body.proxies; if (!Array.isArray(proxies)) return res.status(400).json({ ok: false, error: "proxies_required" }); if (proxies.length > 500) return res.status(400).json({ ok: false, error: "too_many_proxies" }); let skipped = 0; const seen = new Set(); const valid = []; for (const item of proxies) { let s = typeof item === "string" ? item.trim() : ""; s = s.replace(/^https?:\/\//i, "").trim(); if (!/^\d+\.\d+\.\d+\.\d+:\d+$/.test(s)) { skipped++; continue; } if (!seen.has(s)) { seen.add(s); valid.push(s); } } const stmt = db.prepare("INSERT OR REPLACE INTO proxy_pool (host, target, last_ok, fails) VALUES (?, 'vega', datetime('now'), 0)"); for (const host of valid) stmt.run(host); res.json({ ok: true, inserted: valid.length, skipped: skipped, total: proxies.length }); } catch (e) { res.status(500).json({ ok: false, error: e && e.message }); } }); app.get("/api/admin/harvest-logs", requireAdmin, (req, res) => {
   const rows = db.prepare("SELECT hl.*, p.brand_name AS brand, u.email AS user_email FROM harvest_logs hl LEFT JOIN providers p ON p.id=hl.provider_id LEFT JOIN users u ON u.id=hl.user_id ORDER BY hl.created_at DESC LIMIT 200").all();
   res.json({ ok: true, logs: rows });
 });
