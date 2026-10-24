@@ -472,15 +472,18 @@ async function fetchProxyList() {
   const urls = [
     "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=6000&country=all&ssl=all&anonymity=all",
     "https://api.proxyscrape.com/v3/free-proxy-list/get?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all",
+    "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
   ];
+  const gabungan = new Set();
   for (const u of urls) {
     try {
       const r = await fetch(u, { signal: AbortSignal.timeout(15000) });
       const txt = await r.text();
       const list = txt.split(/\r?\n/).map((s) => s.trim()).filter((s) => /^\d+\.\d+\.\d+\.\d+:\d+$/.test(s));
-      if (list.length) { _proxyCache = { list, at: Date.now() }; return list; }
+      for (const item of list) gabungan.add(item);
     } catch {}
   }
+  if (gabungan.size) { _proxyCache = { list: [...gabungan], at: Date.now() }; return _proxyCache.list; }
   return _proxyCache.list;
 }
 function proxyDispatcher(proxyHostPort) {
