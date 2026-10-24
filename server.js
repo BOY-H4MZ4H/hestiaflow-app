@@ -1072,12 +1072,12 @@ async function tryAutoRegisterAvalai(provider) {
     return h;
   };
   // --- inbox temp (langsung, tanpa proxy) ---
-  const inboxNoopmail = async () => {
+  const inboxDiag = { pertama: "", cadangan: "" }; const potongDiag = (v) => String(v || "tidak diketahui").slice(0, 200); const inboxNoopmail = async () => {
     try {
-      const r = await fetch("https://noopmail.org/api/rd", { headers: { "User-Agent": randUA() }, signal: AbortSignal.timeout(20000) });
+      const r = await fetch("https://noopmail.org/api/rd", { headers: { "User-Agent": randUA() }, signal: AbortSignal.timeout(20000) }); if (!r.ok) { inboxDiag.pertama = "HTTP " + r.status; return null; }
       const d = await r.json().catch(() => null);
       const domain = d && d.dm;
-      if (!domain) return null;
+      if (!domain) { inboxDiag.pertama = "HTTP " + r.status + ", tanpa domain"; return null; }
       const local = randStr(12, "abcdefghijklmnopqrstuvwxyz");
       const email = `${local}@${domain}`;
       const poll = async (waitMs) => {
@@ -1099,15 +1099,15 @@ async function tryAutoRegisterAvalai(provider) {
         return null;
       };
       return { email, poll };
-    } catch { return null; }
+    } catch (e) { inboxDiag.pertama = e && e.message ? e.message : "error"; return null; }
   };
   const inboxMinute = async () => {
     try {
       const S = buatSesi(null, randUA());
-      const r = await S.F("https://minuteinbox.com/index/index", {}, 20000);
+      const r = await S.F("https://minuteinbox.com/index/index", {}, 20000); if (!r.ok) { inboxDiag.cadangan = "HTTP " + r.status; return null; }
       const t = await r.text().catch(() => "");
       const m = t.match(/data-email="([^"]+)"/) || t.match(/([a-zA-Z0-9._-]+@minafter\.com)/);
-      if (!m) return null;
+      if (!m) { inboxDiag.cadangan = "HTTP " + r.status + ", email tidak ditemukan"; return null; }
       const email = m[1];
       const poll = async (waitMs) => {
         const deadline = Date.now() + waitMs; const seen = new Set();
@@ -1132,7 +1132,7 @@ async function tryAutoRegisterAvalai(provider) {
         return null;
       };
       return { email, poll };
-    } catch { return null; }
+    } catch (e) { inboxDiag.cadangan = e && e.message ? e.message : "error"; return null; }
   };
   // --- proxy: hanya yang lolos cek jangkauan ke upstream ---
   let okProxies = [];
@@ -1156,7 +1156,7 @@ async function tryAutoRegisterAvalai(provider) {
       // 1) Inbox (noopmail dulu, minuteinbox cadangan).
       let inbox = await inboxNoopmail();
       if (!inbox) inbox = await inboxMinute();
-      if (!inbox) { console.log("[vega] inbox gagal dibuat"); continue; }
+      if (!inbox) { console.log("[vega] inbox gagal dibuat noopmail=" + potongDiag(inboxDiag.pertama) + " minuteinbox=" + potongDiag(inboxDiag.cadangan)); continue; }
       const email = inbox.email;
       // 2) Kirim OTP: endpoint LAMA dulu (terbukti kode tiba), baru endpoint baru.
       let otpSent = false;
