@@ -744,7 +744,7 @@ async function tryAutoRegisterRooyai(provider) {
     if (route.host && !disp) continue;
     const ua = randUA();
     const nama = ROOYAI_NAMA[Math.floor(Math.random() * ROOYAI_NAMA.length)];
-    const domain = ["tempomail.id", "tempmailo.com"][Math.floor(Math.random() * 2)];
+    const domain = "hestiaflow.cc.cd";
     const tempEmail = `rooyai${Date.now()}${Math.floor(Math.random()*9999)}@${domain}`;
     const tempPassword = `Rooyai${Math.floor(100000+Math.random()*900000)}@#`;
     const F = async (url, opts = {}, ms = 25000) => {
