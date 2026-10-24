@@ -80,6 +80,7 @@ function seed() {
   // JALUR 2 (2026-10-23): tier Media + log generate gambar/video. media_logs = catatan pantauan
   // (siapa, model apa, prompt, biaya, hasil tersalin ke Drive pantauan?) untuk admin/moderasi.
   db.prepare("CREATE TABLE IF NOT EXISTS media_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, api_key_id INTEGER, user_id INTEGER, media_type TEXT, model TEXT, prompt TEXT, cost_usd REAL, gen_id TEXT, source_url TEXT, drive_path TEXT, copy_status TEXT, created_at TEXT DEFAULT (datetime('now')))").run();
+  db.prepare("CREATE TABLE IF NOT EXISTS proxy_pool (host TEXT, target TEXT, last_ok TEXT DEFAULT (datetime('now')), fails INTEGER DEFAULT 0, PRIMARY KEY(host, target))").run();
   db.prepare("INSERT OR IGNORE INTO tiers (slug,name,audience_label,badge,max_models,sort_order) VALUES ('media','Media','UNTUK PENGGUNA MEDIA','TIER MEDIA',NULL,5)").run();
   // Provider Bansos (tanpa tier): 4 model pilihan. Key upstream (pool akun) disimpan di tabel workers,
   // di-seed dari env BANSOS_UPSTREAM_KEYS. upstream_url server-side saja (tidak pernah tampil publik).
