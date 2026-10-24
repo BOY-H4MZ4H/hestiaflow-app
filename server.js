@@ -725,12 +725,12 @@ async function tryAutoRegisterRooyai(provider) {
   let okProxies = [];
   try {
     const raw = await fetchProxyList();
-    const cand = [...raw].sort(() => Math.random() - 0.5).slice(0, 40);
+    const cand = [...raw].sort(() => Math.random() - 0.5).slice(0, 150);
     const cek = await Promise.all(cand.map(async (p) => {
       const d = proxyDispatcher(p);
       if (!d) return null;
       try {
-        const r = await fetch(apiBase + "/models", { dispatcher: d, signal: AbortSignal.timeout(7000) });
+        const r = await fetch(apiBase + "/models", { dispatcher: d, signal: AbortSignal.timeout(15000) });
         return (r && r.status > 0) ? p : null;
       } catch { return null; }
     }));
@@ -745,8 +745,10 @@ async function tryAutoRegisterRooyai(provider) {
     const ua = randUA();
     const nama = ROOYAI_NAMA[Math.floor(Math.random() * ROOYAI_NAMA.length)];
     const domain = "hestiaflow.cc.cd";
-    const tempEmail = `rooyai${Date.now()}${Math.floor(Math.random()*9999)}@${domain}`;
-    const tempPassword = `Rooyai${Math.floor(100000+Math.random()*900000)}@#`;
+    const nm = nama.toLowerCase().replace(/[^a-z ]/g, "").split(" ").filter(Boolean);
+    const local = nm.length > 1 ? `${nm[0]}.${nm[nm.length - 1]}${Math.floor(10 + Math.random() * 90)}` : `rooyai${Math.floor(100 + Math.random() * 900)}`;
+const tempEmail = `${local}@${domain}`;
+const tempPassword = `Rooyai${Math.floor(100000+Math.random()*900000)}@#`;
     const F = async (url, opts = {}, ms = 25000) => {
       const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), ms);
       try { return await fetch(url, { ...opts, signal: ctl.signal, ...(disp ? { dispatcher: disp } : {}) }); }
@@ -755,7 +757,7 @@ async function tryAutoRegisterRooyai(provider) {
     try {
       // 1) Register
       const rg = await F("https://llm.rooyai.com/api/auth/register", {
-        method: "POST", headers: { "Content-Type": "application/json", "User-Agent": ua },
+        method: "POST", headers: { "Content-Type": "application/json", "User-Agent": ua, "Accept": "application/json, text/plain, */*", "Accept-Language": "en-US,en;q=0.9", "Origin": "https://llm.rooyai.com", "Referer": "https://llm.rooyai.com/" },
         body: JSON.stringify({ name: nama, email: tempEmail, password: tempPassword })
       });
       const rj = await rg.json().catch(() => null);
