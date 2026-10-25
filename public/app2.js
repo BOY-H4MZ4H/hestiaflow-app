@@ -377,7 +377,7 @@ async function doUserHarvest() {
   $("#harvestProg").style.width = "0%"; $("#harvestProgText").textContent = "";
   try {
     const out = await api("/api/harvest", { method: "POST", body: JSON.stringify({ providerId, count }) });
-    $("#harvestProg").style.width = "100%"; $("#harvestProgText").textContent = `${out.count} dari ${count} akun berhasil dipanen`;
+    $("#harvestProg").style.width = "100%"; const liveAccts = (out.keys || []).reduce((s, k) => s + (k.liveAccounts || 0), 0); $("#harvestProgText").textContent = `${liveAccts} dari ${count} akun hidup`;
     let html = `<div class="term-line">Total Proxy OK: ${out.proxyTotal != null ? out.proxyTotal : 0}</div>`;
     (out.keys || []).forEach((k, i) => {
       const st = k.live ? `<span class="term-live">Live</span>` : `<span class="term-dead">Mati</span>`;
