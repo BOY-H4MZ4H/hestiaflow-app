@@ -1418,12 +1418,19 @@ async function doHarvest({ userId, providerId, count }) {
       db.prepare("UPDATE users SET gratis_started_at=? WHERE id=?").run(now.toISOString(), userId);
     }
   }
-  // Resolve models: endpoint (if operator key) -> configured list -> honest empty.
+  // Resolve models: Stella pakai katalog configured (190) dulu supaya snapshot kunci
+  // baru = katalog, bukan daftar live upstream (515 + alias -latest). Tier lain tetap
+  // endpoint dulu seperti semula. Fallback: kalau configured kosong, pakai logika lama.
   let models = null, source = "none";
-  const fetched = await fetchProviderModels(provider);
-  if (fetched) { models = fetched; source = "endpoint"; }
-  else {
+  if (provider.brand_name === "Stella") {
     try { const cfg = JSON.parse(provider.model_list_json || "[]"); if (cfg.length) { models = cfg; source = "configured"; } } catch {}
+  }
+  if (!models) {
+    const fetched = await fetchProviderModels(provider);
+    if (fetched) { models = fetched; source = "endpoint"; }
+    else {
+      try { const cfg = JSON.parse(provider.model_list_json || "[]"); if (cfg.length) { models = cfg; source = "configured"; } } catch {}
+    }
   }
   if (!models) models = [];
   // Gratis tier: enforce max 2 models.
