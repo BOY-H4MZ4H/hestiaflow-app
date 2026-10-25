@@ -757,6 +757,7 @@ async function tryAutoRegisterRooyai(provider) {
         const r = await fetch(apiBase + "/models", { dispatcher: d, signal: AbortSignal.timeout(15000) });
         return (r && r.status > 0) ? p : null;
       } catch { return null; }
+      }));
     for (const p of cek) if (p && okProxies.length < 30) okProxies.push(p); }
   
     console.log(`[rooyai] proxy lolos cek: ${okProxies.length} dari ${cand.length} kandidat`);
