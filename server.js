@@ -756,7 +756,6 @@ async function tryAutoRegisterRooyai(provider) {
       } catch { return null; }
     }));
     okProxies = cek.filter(Boolean).slice(0, 4);
-    if (okProxies.length) { _proxyCache = { list: okProxies, at: Date.now() }; }
     console.log(`[rooyai] proxy lolos cek: ${okProxies.length} dari ${cand.length} kandidat`);
   } catch {}
   const routes = [...okProxies.map((p) => ({ via: "proxy", host: p })), { via: "direct", host: null }];
@@ -851,7 +850,6 @@ async function tryAutoRegisterZerolimit(provider) {
       try { const r = await fetch(siteBase + "/", { dispatcher: d, signal: AbortSignal.timeout(7000) }); return (r && r.status > 0) ? p : null; } catch { return null; }
     }));
     okProxies = cek.filter(Boolean).slice(0, 3);
-    if (okProxies.length) { _proxyCache = { list: okProxies, at: Date.now() }; }
     console.log(`[zerolimit] proxy lolos cek: ${okProxies.length} dari ${cand.length} kandidat`);
   } catch {}
   const routes = [...okProxies.map((p) => ({ via: "proxy", host: p })), { via: "direct", host: null }];
@@ -987,7 +985,6 @@ async function tryAutoRegisterNearresearch(provider) {
       try { const r = await fetch(siteBase + "/", { dispatcher: d, signal: AbortSignal.timeout(7000) }); return (r && r.status > 0) ? p : null; } catch { return null; }
     }));
     okProxies = cek.filter(Boolean).slice(0, 3);
-    if (okProxies.length) { _proxyCache = { list: okProxies, at: Date.now() }; }
     console.log(`[nearresearch] proxy lolos cek: ${okProxies.length} dari ${cand.length} kandidat`);
   } catch {}
   const routes = [...okProxies.map((p) => ({ via: "proxy", host: p })), { via: "direct", host: null }];
