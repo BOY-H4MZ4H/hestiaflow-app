@@ -606,7 +606,7 @@ function mountApiBubble() {
   if (!document.body) return;
   const S = apiSampleTexts();
   const wrap = document.createElement("div");
-  wrap.style.cssText = "position:fixed;right:16px;bottom:16px;z-index:9999;display:flex;flex-direction:column;align-items:flex-end;gap:10px";
+  wrap.style.cssText = "position:fixed;right:16px;top:50%;transform:translateY(-50%);z-index:9999;display:flex;flex-direction:column;align-items:flex-end;gap:10px";
   const block = (label, key) => `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><b style="font-size:13px;color:#d4af37">${label}</b><button class="btn btn-ghost btn-sm" data-copy="${key}">Salin</button></div><pre style="margin:0;background:#0d0b08;border:1px solid #3a3226;border-radius:10px;padding:10px;font-size:11px;line-height:1.5;overflow-x:auto;white-space:pre;color:#f3ead2">${esc(S[key])}</pre></div>`;
   wrap.innerHTML = `
   <div id="apiPanel" style="display:none;width:min(92vw,400px);max-height:72vh;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;background:#17140f;border:1px solid #d4af37;border-radius:16px;padding:14px;color:#f3ead2;box-shadow:0 18px 50px rgba(0,0,0,.55)">
@@ -624,9 +624,9 @@ function mountApiBubble() {
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b style="font-size:15px">Credit / Token Saya</b><button id="creditPanelClose" class="btn btn-ghost btn-sm" style="color:#f3ead2">✕</button></div>
     <div id="creditBody"><p class="muted" style="margin:0;font-size:13px">Memuat credit kamu…</p></div>
   </div>
-  <button id="creditBubbleBtn" title="Credit / Token Saya" style="width:56px;height:56px;border-radius:50%;border:2px solid #f3ead2;background:linear-gradient(135deg,#d4af37,#b8860b);color:#17140f;font-size:23px;cursor:pointer;box-shadow:0 10px 26px rgba(0,0,0,.5)">🪙</button>
+  <button id="fabToggleBtn" title="Buka/Tutup tombol" style="width:56px;height:56px;border-radius:50%;border:2px solid #f3ead2;background:linear-gradient(135deg,#d4af37,#b8860b);color:#17140f;font-size:23px;font-weight:800;cursor:pointer;box-shadow:0 10px 26px rgba(0,0,0,.5)">(</button><button id="creditBubbleBtn" title="Credit / Token Saya" style="width:56px;height:56px;border-radius:50%;border:2px solid #f3ead2;background:linear-gradient(135deg,#d4af37,#b8860b);color:#17140f;font-size:23px;cursor:pointer;box-shadow:0 10px 26px rgba(0,0,0,.5)">🪙</button>
   <button id="apiBubbleBtn" title="Contoh cURL & JSON" style="width:56px;height:56px;border-radius:50%;border:2px solid #f3ead2;background:linear-gradient(135deg,#d4af37,#b8860b);color:#17140f;font-size:19px;font-weight:800;cursor:pointer;box-shadow:0 10px 26px rgba(0,0,0,.5)">&lt;/&gt;</button>`;
-  document.body.appendChild(wrap);
+  document.body.appendChild(wrap); wrap.querySelector("#creditBubbleBtn").style.display = "none"; wrap.querySelector("#apiBubbleBtn").style.display = "none"; let fabOpen = false; wrap.querySelector("#fabToggleBtn").addEventListener("click", () => { fabOpen = !fabOpen; const d = fabOpen ? "" : "none"; wrap.querySelector("#creditBubbleBtn").style.display = d; wrap.querySelector("#apiBubbleBtn").style.display = d; });
   const panel = wrap.querySelector("#apiPanel");
   const creditPanel = wrap.querySelector("#creditPanel");
   // Lapisan penutup full-layar: menangkep semua sentuhan di luar panel agar layar
