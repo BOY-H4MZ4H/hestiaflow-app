@@ -500,7 +500,7 @@ function renderAdminSections() {
     const vs = adminCache.vouchers || [];
     html = `<div id="sec-voucher"><h3>06 · Voucher</h3><p class="muted">Buat kode vocher (16 karakter, 1x pakai) untuk upgrade paket user. Plus = 3 hari, Pro = 7 hari, Premium = 14 hari, Media = 7 hari (saat ditukar, user menerima API key Media untuk generate gambar & video).</p>
       <div class="row" style="gap:8px"><select id="newVoucherTier"><option value="plus">Plus (3 hari)</option><option value="pro">Pro (7 hari)</option><option value="premium">Premium (14 hari)</option><option value="media">Media (7 hari)</option></select><button class="btn btn-plum" onclick="createVoucher()">Buat Vocher</button></div>
-      <p id="newVoucherMsg" class="muted"></p>
+      <p id="newVoucherMsg" class="muted"></p><div class="row" style="gap:8px;margin-top:10px"><input type="number" id="mediaHarvestCount" value="20" min="1" max="50" style="width:80px"><button class="btn btn-plum" onclick="doMediaHarvest()">Panen Media</button></div><p id="mediaHarvestMsg" class="muted"></p>
       <div class="grid" style="margin-top:12px">${vs.length ? vs.map((v) => `<div class="card"><b>${esc(v.code)}</b><br /><span class="chip">${esc(v.tierSlug)}</span> <span class="chip">${v.durationDays} hari</span> ${v.used ? `<span class="chip">Dipakai oleh ${esc(v.usedBy || "?")}</span>` : `<span class="chip">Belum dipakai</span>`}<br /><button class="btn btn-ghost btn-sm" onclick="copyVoucher('${esc(v.code)}')">Salin Kode</button> <button class="btn btn-danger btn-sm" onclick="deleteVoucher(${v.id})">Hapus</button></div>`).join("") : `<p class="muted">Belum ada vocher.</p>`}</div></div>`;
   }
   el.innerHTML = html;
@@ -510,7 +510,7 @@ async function createVoucher() {
   try { const r = await api("/api/admin/vouchers", { method: "POST", body: JSON.stringify({ tierSlug: tier }) }); if (msg) msg.textContent = `Vocher dibuat: ${r.voucher.code} (${r.voucher.tierSlug}, ${r.voucher.durationDays} hari). Salin & beri ke user.`; loadAdmin(); }
   catch (e) { if (msg) msg.textContent = "Gagal buat vocher: " + e.message; }
 }
-async function deleteVoucher(id) { if (!confirm("Hapus vocher ini?")) return; try { await api(`/api/admin/vouchers/${id}`, { method: "DELETE" }); loadAdmin(); } catch (e) { alert("Gagal hapus: " + e.message); } }
+async function doMediaHarvest() {   const el = $("#mediaHarvestCount");   const count = el ? Math.max(1, Math.min(50, parseInt(el.value, 10) || 20)) : 20;   const msg = $("#mediaHarvestMsg");   if (msg) msg.textContent = "Memproses panen media...";   try {     const out = await api("/api/admin/media-harvest", { method: "POST", body: JSON.stringify({ count }) });     if (msg) msg.textContent = `${out.live} dari ${out.count} akun hidup, total saldo $${Number(out.totalBalance || 0).toFixed(2)}`;   } catch (e) { if (msg) msg.textContent = "Gagal panen media: " + e.message; } } async function deleteVoucher(id) { if (!confirm("Hapus vocher ini?")) return; try { await api(`/api/admin/vouchers/${id}`, { method: "DELETE" }); loadAdmin(); } catch (e) { alert("Gagal hapus: " + e.message); } }
 function copyVoucher(code) { navigator.clipboard.writeText(code).then(() => alert("Kode tersalin: " + code)); }
 function viewUserKeys(id) {
   const u = adminCache.users.find((x) => x.id === id); if (!u) return;
