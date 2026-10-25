@@ -511,24 +511,6 @@ function proxyDispatcher(proxyHostPort) {
   } catch { return undefined; }
 }
 
-async function pickStellaChatDispatcher(upstreamUrl) {
-  try {
-    const list = await fetchProxyList();
-    if (!list || !list.length) return undefined;
-    const origin = new URL(upstreamUrl).origin;
-    const sample = [...list].sort(() => Math.random() - 0.5).slice(0, 8);
-    const checks = await Promise.all(sample.map(async (px) => {
-      const d = proxyDispatcher(px);
-      if (!d) return null;
-      try {
-        const r = await fetch(origin + "/", { dispatcher: d, headers: { "User-Agent": "HestiaFlow/1.0" }, signal: AbortSignal.timeout(7000) });
-        return r.status === 200 ? d : null;
-      } catch { return null; }
-    }));
-    return checks.find(Boolean) || undefined;
-  } catch { return undefined; }
-}
-
 // Luna-specific auto-register (provider brand "Luna").
 // Flow (no CAPTCHA, no email verification): POST /api/auth/sign-up/email
 // {name,email,password} -> session cookies -> POST /api/v1/keys -> {key}.
@@ -2088,16 +2070,11 @@ app.post("/v1/chat/completions", async (req, res) => {
     try {
       const ctl = new AbortController();
       const t = setTimeout(() => ctl.abort(), 120000);
-      let chatDispatcher = undefined;
-      try {
-        if (provider && provider.brand_name === "Stella") chatDispatcher = await pickStellaChatDispatcher(upstreamUrl);
-      } catch {}
       const r = await fetch(stripV1(upstreamUrl) + "/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${upstreamKey}`, "User-Agent": "HestiaFlow/1.0" },
         body: JSON.stringify(fwdBody),
         signal: ctl.signal,
-        ...(chatDispatcher ? { dispatcher: chatDispatcher } : {}),
       });
       // Jika rate limit / 402 / 403 / 401 (key upstream mati), coba kandidat berikutnya (failover).
       if ((r.status === 429 || r.status === 402 || r.status === 403 || r.status === 401) && upstreamCandidates.length > 1) {
