@@ -1483,7 +1483,7 @@ async function doHarvest({ userId, providerId, count }) {
     // Credit final: hanya akun hidup yang dihitung (aturan pendapatan Hestia 2026-10-21).
     const credit = isGratis ? null : (provider.default_credit != null ? provider.default_credit * liveCount : null);
     if (credit != null) db.prepare("UPDATE api_keys SET credit=? WHERE id=?").run(credit, apiKeyId);
-    keys.push({ id: apiKeyId, providerBrand: provider.brand_name, tierSlug: tier ? tier.slug : null, key: userId ? keyValue : undefined, keyPrefix, credit, models, modelSource: source, modelCount: provider.model_count, live: liveCount > 0, combinedAccounts: count,, liveAccounts: liveCount });
+    keys.push({ id: apiKeyId, providerBrand: provider.brand_name, tierSlug: tier ? tier.slug : null, key: userId ? keyValue : undefined, keyPrefix, credit, models, modelSource: source, modelCount: provider.model_count, live: liveCount > 0, combinedAccounts: count, liveAccounts: liveCount });
     return { count, logs, keys, proxyTotal:_proxyOk };
   }
 }
