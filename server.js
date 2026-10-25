@@ -1990,6 +1990,11 @@ app.post("/v1/chat/completions", async (req, res) => {
   let upstreamCandidates = [];
   // BANSOS: key anonim memakai pool akun (workers) bergiliran, yang paling sedikit dipakai duluan.
   const isBansosKey = !!(key.anon_id && provider);
+  // Potong credit token: premium/pro saja.
+  let isTokenTier = false;
+  try { const tt = db.prepare("SELECT slug FROM tiers WHERE id=?").get(key.tier_id); if (tt && (tt.slug === "premium" || tt.slug === "pro")) isTokenTier = !isBansosKey; } catch {}
+  const potongCreditToken = (totalTokens) => { if (!isTokenTier || key.credit == null) return; try { const n = Math.max(0, Math.floor(Number(totalTokens) || 0)); if (n > 0) db.prepare("UPDATE api_keys SET credit = MAX(0, COALESCE(credit,0) - ?) WHERE id = ?").run(n, key.id); } catch {} };
+  
   if (isBansosKey) {
     if (!bansosEnabled()) return res.status(403).json({ error: { message: "Bansos sedang digembok sementara.", type: "invalid_request_error", param: null, code: "bansos_disabled" } });
     const poolNow = bansosPool();
@@ -2043,6 +2048,7 @@ app.post("/v1/chat/completions", async (req, res) => {
     if (BANSOS_MODEL_MAP[model]) fwdBody.model = BANSOS_MODEL_MAP[model];
     if (stream) fwdBody.stream_options = { include_usage: true };
   }
+  if (isTokenTier && stream) { fwdBody = Object.assign({}, req.body); fwdBody.stream_options = Object.assign({}, req.body.stream_options, { include_usage: true }); }
   // Auto-hapus akun panen mati/habis saldo (2026-10-22, perintah Hestia — biar akun habis
   // tidak numpuk dan tidak dicoba terus-menerus): hanya kandidat ber-harvestId yang disentuh;
   // kandidat worker Bansos (workerId) TIDAK pernah dihapus/dijeda oleh logika ini.
@@ -2106,6 +2112,8 @@ app.post("/v1/chat/completions", async (req, res) => {
             if (done) break;
             const chunkB = Buffer.from(value);
             if (isBansosKey && cand.workerId) tailB = (tailB + chunkB.toString("utf8")).slice(-8000);
+            if (isTokenTier) tailB = (tailB + chunkB.toString("utf8")).slice(-8000);
+            
             res.write(chunkB);
           }
         } finally { clearTimeout(t); }
@@ -2113,6 +2121,7 @@ app.post("/v1/chat/completions", async (req, res) => {
           const mB = [...tailB.matchAll(/"total_tokens"\s*:\s*(\d+)/g)];
           if (mB.length) recordBansosUsage(cand.workerId, Number(mB[mB.length - 1][1]));
         }
+        if (isTokenTier && r.status >= 200 && r.status < 300 && tailB) { const mT = [...tailB.matchAll(/"total_tokens"\s*:\s*(\d+)/g)]; if (mT.length) potongCreditToken(Number(mT[mT.length - 1][1])); }
         if (cand.harvestId && r.status >= 200 && r.status < 300) panenPulih(cand);
         return res.end();
       }
@@ -2131,6 +2140,8 @@ app.post("/v1/chat/completions", async (req, res) => {
       // Respons sukses (2xx) dari akun panen: reset fail_count + cooldown-nya.
       if (cand.harvestId && data && data.error && /insufficient|quota|revoked|authentication|account_blocked|suspended/i.test(JSON.stringify(data.error))) panenMati(cand, r.status);
       else if (cand.harvestId && r.status >= 200 && r.status < 300) panenPulih(cand);
+      if (isTokenTier && r.status >= 200 && r.status < 300 && data && data.usage && data.usage.total_tokens) potongCreditToken(data.usage.total_tokens);
+      
       return res.status(r.status).json(data);
     } catch (e) {
       lastError = e && e.message;
