@@ -378,7 +378,7 @@ async function doUserHarvest() {
   try {
     const out = await api("/api/harvest", { method: "POST", body: JSON.stringify({ providerId, count }) });
     $("#harvestProg").style.width = "100%"; const liveAccts = (out.keys || []).reduce((s, k) => s + (k.liveAccounts || 0), 0); $("#harvestProgText").textContent = `${liveAccts} dari ${count} akun hidup`;
-    let html = `<div class="term-line">Total Proxy OK: ${out.proxyTotal != null ? out.proxyTotal : 0}</div>`;
+    let html = `<div class="term-line">Total Proxy Terkumpul: ${out.proxyTotal != null ? out.proxyTotal : 0}</div>`;
     (out.keys || []).forEach((k, i) => {
       const st = k.live ? `<span class="term-live">Live</span>` : `<span class="term-dead">Mati</span>`;
       // Gratis: credit dalam cents, tampilkan sebagai $X.XX (perintah Hestia 2026-10-19).
