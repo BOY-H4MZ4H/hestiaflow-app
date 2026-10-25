@@ -294,6 +294,19 @@ for (const [k, v] of Object.entries(process.env)) {
   try { db.prepare("UPDATE providers SET upstream_url=? WHERE brand_name=?").run(url, brand); } catch {}
 }
 
+// Sync provider upstream KEYS from env vars (PROVIDER_<BRAND>_UPSTREAM_KEY).
+// Same brand mapping as the URL sync; values live in Railway env, never in code.
+// (Lets the operator install a provider key without the panel's native prompt.)
+for (const [k, v] of Object.entries(process.env)) {
+  if (!k.startsWith("PROVIDER_") || !k.endsWith("_UPSTREAM_KEY")) continue;
+  const raw = k.slice("PROVIDER_".length, -"_UPSTREAM_KEY".length);
+  if (!raw) continue;
+  const brand = raw === "ZEROLIMIT" ? "Luna" : raw.charAt(0) + raw.slice(1).toLowerCase();
+  const key = String(v || "").trim();
+  if (!key) continue;
+  try { db.prepare("UPDATE providers SET upstream_api_key=? WHERE brand_name=?").run(key, brand); } catch {}
+}
+
 // ---------- helpers ----------
 const app = express();
 // ---------- pelindung bot (2026-10-23, perintah Hestia: "biar gak ada bot yang masuk") ----------
