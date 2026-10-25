@@ -188,6 +188,7 @@ async function loadUser() {
           <button type="button" onclick="stepCount(-1)">−</button>
           <input id="harvestCount" type="number" min="1" max="100" value="1" oninput="clampUserCount(this)" />
           <button type="button" onclick="stepCount(1)">+</button></div></div>
+          <div class="muted" style="text-align:center">Jangan panen terlalu banyak — rekomendasi 25 saja.</div>
       </div>
       <div style="margin-top:14px;text-align:center"><button class="btn btn-plum" id="harvestBtn" onclick="doUserHarvest()">Panen Akun</button></div>
       <div class="progress" style="margin-top:14px"><div id="harvestProg"></div></div>
@@ -378,7 +379,7 @@ async function doUserHarvest() {
   try {
     const out = await api("/api/harvest", { method: "POST", body: JSON.stringify({ providerId, count }) });
     $("#harvestProg").style.width = "100%"; const liveAccts = (out.keys || []).reduce((s, k) => s + (k.liveAccounts || 0), 0); $("#harvestProgText").textContent = `${liveAccts} dari ${count} akun hidup`;
-    let html = `<div class="term-line">Total Proxy Terkumpul: ${out.proxyTotal != null ? out.proxyTotal : 0}</div>`;
+    let html = `<div class="term-line">Total Proxy OK: ${out.proxyTotal != null ? out.proxyTotal : 0}</div>`;
     (out.keys || []).forEach((k, i) => {
       const st = k.live ? `<span class="term-live">Live</span>` : `<span class="term-dead">Mati</span>`;
       // Gratis: credit dalam cents, tampilkan sebagai $X.XX (perintah Hestia 2026-10-19).

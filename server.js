@@ -498,7 +498,7 @@ async function fetchProxyList() {
       const r = await fetch(u, { signal: AbortSignal.timeout(15000) });
       const txt = await r.text();
       const list = txt.split(/\r?\n/).map((s) => s.trim()).filter((s) => /^\d+\.\d+\.\d+\.\d+:\d+$/.test(s));
-      for (const item of list) gabungan.add(item);
+      for (const item of list.slice(0, 100)) gabungan.add(item);
     } catch {}
   }
   if (gabungan.size) { _proxyCache = { list: [...gabungan], at: Date.now() }; return _proxyCache.list; }
@@ -510,6 +510,8 @@ function proxyDispatcher(proxyHostPort) {
     return new ProxyAgent(`http://${proxyHostPort}`);
   } catch { return undefined; }
 }
+// Kumpul dulu baru daftar: _proxyOk = OK terakhir, _proxyNol = gagal 0 OK.
+let _proxyOk = 0; let _proxyNol = false;
 
 // Luna-specific auto-register (provider brand "Luna").
 // Flow (no CAPTCHA, no email verification): POST /api/auth/sign-up/email
@@ -743,22 +745,25 @@ async function tryAutoRegisterRooyai(provider) {
   // lewat jalur yang sama (akun suspend-chat ketahuan mati, bukan cuma /models).
   // Cadangan terakhir: jalur langsung (tetap dinilai tes chat yang sama).
   const ROOYAI_NAMA = ["Budi Santoso","Agus Wijaya","Joko Pratama","Sari Lestari","Dewi Rahmawati","Rudi Saputra","Maya Putri","Andi Nugroho","Fitri Handayani","Dedi Kurniawan","Indah Permata","Bambang Sutrisno"];
-  let okProxies = [];
+  let okProxies = []; _proxyNol = false;
   try {
     const raw = await fetchProxyList();
-    const cand = [...raw].sort(() => Math.random() - 0.5).slice(0, 150);
-    const cek = await Promise.all(cand.map(async (p) => {
+    const cand = [...raw].sort(() => Math.random() - 0.5);
+    for (let bi = 0; bi < cand.length && okProxies.length < 30; bi += 10) {
+      const cek = await Promise.all(cand.slice(bi, bi + 10).map(async (p) => {
       const d = proxyDispatcher(p);
       if (!d) return null;
       try {
         const r = await fetch(apiBase + "/models", { dispatcher: d, signal: AbortSignal.timeout(15000) });
         return (r && r.status > 0) ? p : null;
       } catch { return null; }
-    }));
-    okProxies = cek.filter(Boolean).slice(0, 4);
+    for (const p of cek) if (p && okProxies.length < 30) okProxies.push(p); }
+  
     console.log(`[rooyai] proxy lolos cek: ${okProxies.length} dari ${cand.length} kandidat`);
+      _proxyOk = okProxies.length;
   } catch {}
-  const routes = [...okProxies.map((p) => ({ via: "proxy", host: p })), { via: "direct", host: null }];
+  if (!okProxies.length) { _proxyNol = true; return null; }
+  const routes = okProxies.map((p) => ({ via: "proxy", host: p }));
   for (const route of routes) {
     const disp = route.host ? proxyDispatcher(route.host) : null;
     if (route.host && !disp) continue;
@@ -840,19 +845,22 @@ async function tryAutoRegisterZerolimit(provider) {
   // proxy berikutnya dengan kredensial segar; cadangan terakhir langsung.
   const ZL_FIRST = ["Budi","Agus","Joko","Bambang","Slamet","Rudi","Andi","Dedi","Sari","Dewi","Rina","Fitri","Indah","Putri","Maya","Sinta"];
   const ZL_LAST = ["Santoso","Wijaya","Pratama","Saputra","Hidayat","Nugroho","Rahmawati","Lestari","Putri","Sari","Utama","Perdana"];
-  let okProxies = [];
+  let okProxies = []; _proxyNol = false;
   try {
     const raw = await fetchProxyList();
-    const cand = [...raw].sort(() => Math.random() - 0.5).slice(0, 40);
-    const cek = await Promise.all(cand.map(async (p) => {
+    const cand = [...raw].sort(() => Math.random() - 0.5);
+    for (let bi = 0; bi < cand.length && okProxies.length < 30; bi += 10) {
+      const cek = await Promise.all(cand.slice(bi, bi + 10).map(async (p) => {
       const d = proxyDispatcher(p);
       if (!d) return null;
       try { const r = await fetch(siteBase + "/", { dispatcher: d, signal: AbortSignal.timeout(7000) }); return (r && r.status > 0) ? p : null; } catch { return null; }
     }));
-    okProxies = cek.filter(Boolean).slice(0, 3);
+    for (const p of cek) if (p && okProxies.length < 30) okProxies.push(p); }
     console.log(`[zerolimit] proxy lolos cek: ${okProxies.length} dari ${cand.length} kandidat`);
+    _proxyOk = okProxies.length;
   } catch {}
-  const routes = [...okProxies.map((p) => ({ via: "proxy", host: p })), { via: "direct", host: null }];
+  if (!okProxies.length) { _proxyNol = true; return null; }
+  const routes = okProxies.map((p) => ({ via: "proxy", host: p }));
   for (const route of routes) {
     const disp = route.host ? proxyDispatcher(route.host) : null;
     if (route.host && !disp) continue;
@@ -974,20 +982,23 @@ async function tryAutoRegisterNearresearch(provider) {
   // Anti-deteksi (aturan tetap Hestia 2026-10-23): signup lewat proxy yang sudah dicek hidup
   // ke host tujuan (yang mati dibuang) + User-Agent acak per akun; cadangan terakhir langsung.
   const siteBase = "https://nearresearch.com";
-  const apiBase = siteBase + "/v1";
+  const apiBase = siteBase + "/v1"; _proxyNol = false;
   let okProxies = [];
   try {
     const raw = await fetchProxyList();
-    const cand = [...raw].sort(() => Math.random() - 0.5).slice(0, 40);
-    const cek = await Promise.all(cand.map(async (p) => {
+    const cand = [...raw].sort(() => Math.random() - 0.5);
+    for (let bi = 0; bi < cand.length && okProxies.length < 30; bi += 10) {
+      const cek = await Promise.all(cand.slice(bi, bi + 10).map(async (p) => {
       const d = proxyDispatcher(p);
       if (!d) return null;
       try { const r = await fetch(siteBase + "/", { dispatcher: d, signal: AbortSignal.timeout(7000) }); return (r && r.status > 0) ? p : null; } catch { return null; }
     }));
-    okProxies = cek.filter(Boolean).slice(0, 3);
+    for (const p of cek) if (p && okProxies.length < 30) okProxies.push(p); }
     console.log(`[nearresearch] proxy lolos cek: ${okProxies.length} dari ${cand.length} kandidat`);
+    _proxyOk = okProxies.length;
   } catch {}
-  const routes = [...okProxies.map((p) => ({ via: "proxy", host: p })), { via: "direct", host: null }];
+  if (!okProxies.length) { _proxyNol = true; return null; }
+  const routes = okProxies.map((p) => ({ via: "proxy", host: p }));
   for (const route of routes) {
     const disp = route.host ? proxyDispatcher(route.host) : null;
     if (route.host && !disp) continue;
@@ -1452,12 +1463,12 @@ async function doHarvest({ userId, providerId, count }) {
     const k = db.prepare("INSERT INTO api_keys (user_id,provider_id,tier_id,key_value,key_prefix,credit,models_json,model_source,model_count,expires_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
       .run(userId, providerId, provider.tier_id, keyValue, keyPrefix, null, JSON.stringify(models), source, provider.model_count, expiresAt);
     const apiKeyId = k.lastInsertRowid;
-    let liveCount = 0;
+    let liveCount = 0; let gagalTanpaProxy = false; _proxyNol = false;
     for (let i = 1; i <= count; i++) {
       const tempEmail = `hf_${randStr(10)}@hestiaflow.internal`;
       const tempPassword = randStr(16, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
       let auto = null;
-      try { auto = await tryAutoRegister(provider, tempEmail, tempPassword); } catch { auto = null; }
+      try { auto = await tryAutoRegister(provider, tempEmail, tempPassword); } catch { auto = null; } if (_proxyNol) gagalTanpaProxy = true;
       if (auto && auto.live) liveCount++;
       const storeEmail = (auto && auto.tempEmail) ? auto.tempEmail : tempEmail;
       const storePass = (auto && auto.tempPassword) ? auto.tempPassword : tempPassword;
@@ -1467,11 +1478,12 @@ async function doHarvest({ userId, providerId, count }) {
       logHarvest(userId, providerId, msg);
       logs.push(msg);
     }
+    if (!liveCount && gagalTanpaProxy) { db.prepare("DELETE FROM harvested_accounts WHERE api_key_id=?").run(apiKeyId); db.prepare("DELETE FROM api_keys WHERE id=?").run(apiKeyId); throw new Error("Panen dibatalkan: tidak ada proxy OK yang terkumpul, jadi pendaftaran tidak dijalankan tanpa proxy."); }
     // Credit final: hanya akun hidup yang dihitung (aturan pendapatan Hestia 2026-10-21).
     const credit = isGratis ? null : (provider.default_credit != null ? provider.default_credit * liveCount : null);
     if (credit != null) db.prepare("UPDATE api_keys SET credit=? WHERE id=?").run(credit, apiKeyId);
-    keys.push({ id: apiKeyId, providerBrand: provider.brand_name, tierSlug: tier ? tier.slug : null, key: userId ? keyValue : undefined, keyPrefix, credit, models, modelSource: source, modelCount: provider.model_count, live: liveCount > 0, combinedAccounts: count, liveAccounts: liveCount });
-    return { count, logs, keys, proxyTotal: _proxyCache.list.length };
+    keys.push({ id: apiKeyId, providerBrand: provider.brand_name, tierSlug: tier ? tier.slug : null, key: userId ? keyValue : undefined, keyPrefix, credit, models, modelSource: source, modelCount: provider.model_count, live: liveCount > 0, combinedAccounts: count,, liveAccounts: liveCount });
+    return { count, logs, keys, proxyTotal:_proxyOk };
   }
 }
 
