@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS workers (id INTEGER PRIMARY KEY AUTOINCREMENT, provid
 CREATE TABLE IF NOT EXISTS api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, provider_id INTEGER, tier_id INTEGER, key_value TEXT, key_prefix TEXT, credit INTEGER, models_json TEXT DEFAULT '[]', model_source TEXT DEFAULT 'none', model_count INTEGER DEFAULT 0, status TEXT DEFAULT 'active', created_at TEXT DEFAULT (datetime('now')), FOREIGN KEY(user_id) REFERENCES users(id), FOREIGN KEY(provider_id) REFERENCES providers(id), FOREIGN KEY(tier_id) REFERENCES tiers(id));
 CREATE TABLE IF NOT EXISTS harvested_accounts (id INTEGER PRIMARY KEY AUTOINCREMENT, api_key_id INTEGER, user_id INTEGER, provider_id INTEGER, tier_id INTEGER, temp_email TEXT, temp_password TEXT, upstream_api_key TEXT, upstream_base_url TEXT, created_at TEXT DEFAULT (datetime('now')), FOREIGN KEY(api_key_id) REFERENCES api_keys(id));
 CREATE TABLE IF NOT EXISTS harvest_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, provider_id INTEGER, message TEXT, created_at TEXT DEFAULT (datetime('now')));
-CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT); CREATE TABLE IF NOT EXISTS renderful_operator_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, key_value TEXT, key_prefix TEXT, balance REAL, status TEXT DEFAULT 'active', created_at TEXT DEFAULT (datetime('now')));
+CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT); 
 `);
 
 // ---------- seed ----------
@@ -1659,9 +1659,8 @@ app.post("/api/voucher/redeem", requireAuth, (req, res) => {
   db.prepare("UPDATE users SET tier_slug=?, tier_expires_at=? WHERE id=?").run(v.tier_slug, expires, req.user.id);
   const label = { plus: "Plus", pro: "Pro", premium: "Premium", media: "Media" }[v.tier_slug] || v.tier_slug;
   // Voucher Media: hanya membuka tier (seperti voucher lain); key didapat lewat Panen Akun.
-  let mediaKey = null;
   
-  res.json({ ok: true, tierSlug: v.tier_slug, expiresAt: expires, mediaKey, message: `Vocher berhasil! Paket kamu jadi ${label} sampai ${new Date(expires).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}.` + (mediaKey ? ` API key Media kamu: ${mediaKey} — tersimpan juga di daftar Key Saya.` : "") });
+  res.json({ ok: true, tierSlug: v.tier_slug, expiresAt: expires, mediaKey: null, message: `Vocher berhasil! Paket kamu jadi ${label} sampai ${new Date(expires).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}.` });
 });
 // Admin: buat / list / hapus vocher.
 app.post("/api/admin/vouchers", requireAdmin, (req, res) => {
