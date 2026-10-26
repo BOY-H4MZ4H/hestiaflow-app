@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 const AURORA_MODELS = ["deepseek-v3.1","deepseek-v3.2","deepseek-v4-flash","gemma-4-31B-it","google/gemini-3-flash-preview","google/gemini-3.1-flash-lite","gpt-4o-mini","gpt-oss-120b","minimax-m2.7","moonshotai.kimi-k2.5"];
 function seed() {
   // Migrasi: tabel vouchers + users.tier_expires_at (masa berlaku paket dari vocher).
-  db.prepare("CREATE TABLE IF NOT EXISTS vouchers (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE, tier_slug TEXT, duration_days INTEGER, used INTEGER DEFAULT 0, used_by INTEGER, used_at TEXT, created_at TEXT DEFAULT (datetime('now')))").run();
+  db.prepare("CREATE TABLE IF NOT EXISTS harvest_jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, provider_id INTEGER, count INTEGER, status TEXT DEFAULT 'pending', done_count INTEGER DEFAULT 0, live_count INTEGER DEFAULT 0, proxy_total INTEGER DEFAULT 0, api_key_id INTEGER, error TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))").run(); db.prepare("CREATE TABLE IF NOT EXISTS vouchers (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE, tier_slug TEXT, duration_days INTEGER, used INTEGER DEFAULT 0, used_by INTEGER, used_at TEXT, created_at TEXT DEFAULT (datetime('now')))").run();
   try {
     const ucols = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
     if (!ucols.includes("tier_expires_at")) db.prepare("ALTER TABLE users ADD COLUMN tier_expires_at TEXT").run();
@@ -510,7 +510,7 @@ function proxyDispatcher(proxyHostPort) {
     return new ProxyAgent(`http://${proxyHostPort}`);
   } catch { return undefined; }
 }
-// Kumpul dulu baru daftar: _proxyOk = OK terakhir, _proxyNol = gagal 0 OK.
+async function kumpulProxyOk(probeUrl, timeoutMs) { let ok = []; try { const raw = await fetchProxyList(); const cand = [...raw].sort(() => Math.random() - 0.5); for (let bi = 0; bi < cand.length && ok.length < 30; bi += 10) { const cek = await Promise.all(cand.slice(bi, bi + 10).map(async (p) => { const d = proxyDispatcher(p); if (!d) return null; try { const r = await fetch(probeUrl, { dispatcher: d, signal: AbortSignal.timeout(timeoutMs) }); return (r && r.status > 0) ? p : null; } catch { return null; } })); for (const p of cek) if (p && ok.length < 30) ok.push(p); } } catch {} return ok; } // Kumpul dulu baru daftar: _proxyOk = OK terakhir, _proxyNol = gagal 0 OK.
 let _proxyOk = 0; let _proxyNol = false;
 
 // Luna-specific auto-register (provider brand "Luna").
@@ -734,7 +734,7 @@ async function tryAutoRegisterNova(provider) {
 // 4. Generate key "sk-" + 32 alfanumerik, SHA-256 → key_hash, prefix 12 char
 // 5. POST https://authe.rooyai.com/rest/v1/api_keys {user_id,key_hash,key_prefix,name} → 201
 // Key plaintext (langkah 4) dipakai sebagai upstreamApiKey. Anon key Supabase = public (ada di JS frontend).
-async function tryAutoRegisterRooyai(provider) {
+async function tryAutoRegisterRooyai(provider, sharedPool) {
   const apiBase = "https://llm.rooyai.com/v1";
   const supaAnon = process.env.ROOYAI_SUPABASE_ANON_KEY || "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzg3NzIzNDIwLCJleHAiOjIxMDMwODM0MjB9.g5QfJJ3tuQKZf4m3K-k1lO60ixpkP6-g1fqnMKgF-oI";
   // Anti-deteksi (perintah Hestia 2026-10-23): JANGAN telanjang polos — versi lama jalan
@@ -747,7 +747,7 @@ async function tryAutoRegisterRooyai(provider) {
   const ROOYAI_NAMA = ["Budi Santoso","Agus Wijaya","Joko Pratama","Sari Lestari","Dewi Rahmawati","Rudi Saputra","Maya Putri","Andi Nugroho","Fitri Handayani","Dedi Kurniawan","Indah Permata","Bambang Sutrisno"];
   let okProxies = []; _proxyNol = false;
   try {
-    const raw = await fetchProxyList();
+    const raw = Array.isArray(sharedPool) ? [] : await fetchProxyList(); if (Array.isArray(sharedPool)) { okProxies = [...sharedPool]; _proxyOk = okProxies.length; }
     const cand = [...raw].sort(() => Math.random() - 0.5);
     for (let bi = 0; bi < cand.length && okProxies.length < 30; bi += 10) {
       const cek = await Promise.all(cand.slice(bi, bi + 10).map(async (p) => {
@@ -835,7 +835,7 @@ const tempPassword = `Rooyai${Math.floor(100000+Math.random()*900000)}@#`;
 
 // ZeroLimitAI auto-register (2026-10-18). Flow: register (no CAPTCHA, no email verification required)
 // -> NextAuth login (CSRF + credentials) -> POST /api/keys (one key per free account) -> verify /v1/models.
-async function tryAutoRegisterZerolimit(provider) {
+async function tryAutoRegisterZerolimit(provider, sharedPool) {
   const siteBase = "https://www.zerolimitai.com";
   const apiBase = siteBase + "/api/v1";
   // Domain email: tempomail.id (diperbarui 2026-10-23 — minafter.com & byon.in kini ditolak
@@ -848,7 +848,7 @@ async function tryAutoRegisterZerolimit(provider) {
   const ZL_LAST = ["Santoso","Wijaya","Pratama","Saputra","Hidayat","Nugroho","Rahmawati","Lestari","Putri","Sari","Utama","Perdana"];
   let okProxies = []; _proxyNol = false;
   try {
-    const raw = await fetchProxyList();
+    const raw = Array.isArray(sharedPool) ? [] : await fetchProxyList(); if (Array.isArray(sharedPool)) { okProxies = [...sharedPool]; _proxyOk = okProxies.length; }
     const cand = [...raw].sort(() => Math.random() - 0.5);
     for (let bi = 0; bi < cand.length && okProxies.length < 30; bi += 10) {
       const cek = await Promise.all(cand.slice(bi, bi + 10).map(async (p) => {
@@ -978,7 +978,7 @@ async function tryAutoRegisterBestllm(provider) {
   } catch (e) { console.log("[bestllm] relay exception", e && e.message); return null; }
 }
 
-async function tryAutoRegisterNearresearch(provider) {
+async function tryAutoRegisterNearresearch(provider, sharedPool) {
   // Near Research (2026-10-18): POST /api/signup {email,password} -> {key, balance:0.25}. Tanpa verifikasi, tanpa captcha.
   // Anti-deteksi (aturan tetap Hestia 2026-10-23): signup lewat proxy yang sudah dicek hidup
   // ke host tujuan (yang mati dibuang) + User-Agent acak per akun; cadangan terakhir langsung.
@@ -986,7 +986,7 @@ async function tryAutoRegisterNearresearch(provider) {
   const apiBase = siteBase + "/v1"; _proxyNol = false;
   let okProxies = [];
   try {
-    const raw = await fetchProxyList();
+    const raw = Array.isArray(sharedPool) ? [] : await fetchProxyList(); if (Array.isArray(sharedPool)) { okProxies = [...sharedPool]; _proxyOk = okProxies.length; }
     const cand = [...raw].sort(() => Math.random() - 0.5);
     for (let bi = 0; bi < cand.length && okProxies.length < 30; bi += 10) {
       const cek = await Promise.all(cand.slice(bi, bi + 10).map(async (p) => {
@@ -1273,14 +1273,14 @@ async function tryAutoRegisterAvalai(provider) {
 // (operator-configured in DB). Returns { upstreamApiKey, upstreamBaseUrl } or null.
 // NEVER logs or returns upstream credentials. Falls back to null on any failure
 // (CAPTCHA, email verification, unknown flow) — caller keeps NULL upstream key.
-async function tryAutoRegister(provider, tempEmail, tempPassword) {
+async function tryAutoRegister(provider, tempEmail, tempPassword, sharedPool) {
   const base = (provider.upstream_url || "").replace(/\/$/, "");
   if (!base) return null;
   // Brand-specific flows (proven by operator's own scripts).
   // Luna = ZeroLimitAI di balik layar (2026-10-21). Nama provider TIDAK ditampilkan publik;
   // brand publik tetap "Luna". (Sebelumnya AI4ALL — tryAutoRegisterLuna tidak dipakai lagi.)
   if ((provider.brand_name || "").toLowerCase() === "luna") {
-    const zl = await tryAutoRegisterZerolimit(provider);
+    const zl = await tryAutoRegisterZerolimit(provider, sharedPool);
     if (zl) return zl;
     return null;
   }
@@ -1291,14 +1291,14 @@ async function tryAutoRegister(provider, tempEmail, tempPassword) {
   }
   // Aurora = RooyAI (2026-10-18, gantiin Tokit yang IP-nya diblokir). Auto-register via Supabase, no verifikasi.
   if ((provider.brand_name || "").toLowerCase() === "aurora") {
-    const rooyai = await tryAutoRegisterRooyai(provider);
+    const rooyai = await tryAutoRegisterRooyai(provider, sharedPool);
     if (rooyai) return rooyai;
     return null;
   }
 
   // Stella = Near Research (2026-10-18, gantiin Free.ai yang cuma 2 model gratis). Signup langsung dapet key, tanpa verifikasi.
   if ((provider.brand_name || "").toLowerCase() === "stella") {
-    const nr = await tryAutoRegisterNearresearch(provider);
+    const nr = await tryAutoRegisterNearresearch(provider, sharedPool);
     if (nr) return nr;
     return null;
   }
@@ -1312,7 +1312,7 @@ async function tryAutoRegister(provider, tempEmail, tempPassword) {
   // Zerolimit = ZeroLimitAI (2026-10-21, tier Gratis). Register tanpa captcha & tanpa verifikasi email.
   // Cabang ini yang HILANG di upaya 2026-10-18 — fungsinya ada tapi tidak pernah dipanggil.
   /* Media = Renderful (mesin panen per-akun yang sudah ada; brand publik tetap "Media"). */ if ((provider.brand_name || "").toLowerCase() === "media") { const rf = await tryAutoRegisterRenderful(); if (rf && rf.live && rf.apiKey) return { upstreamApiKey: rf.apiKey, upstreamBaseUrl: RENDERFUL_BASE, tempEmail: tempEmail, tempPassword: tempPassword, live: true, balance: rf.balance }; return null; } if ((provider.brand_name || "").toLowerCase() === "zerolimit") {
-    const zl = await tryAutoRegisterZerolimit(provider);
+    const zl = await tryAutoRegisterZerolimit(provider, sharedPool);
     if (zl) return zl;
     return null;
   }
@@ -1393,7 +1393,7 @@ const TIER_RANK = { gratis: 0, plus: 1, pro: 2, premium: 3 };
 const VOUCHER_DAYS = { plus: 3, pro: 7, premium: 14, media: 7 };
 function effectiveTierSlug(u) { if (!u) return "gratis"; if (u.tier_expires_at && new Date(u.tier_expires_at) < new Date()) return "gratis"; return u.tier_slug || "gratis"; }
 function genVoucherCode() { const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; let s = ""; for (let i = 0; i < 16; i++) s += chars[crypto.randomInt(chars.length)]; return s.slice(0, 4) + "-" + s.slice(4, 8) + "-" + s.slice(8, 12) + "-" + s.slice(12, 16); }
-async function doHarvest({ userId, providerId, count }) {
+async function doHarvest({ userId, providerId, count, onProgress }) {
   const provider = db.prepare("SELECT * FROM providers WHERE id=?").get(providerId);
   if (!provider) throw new Error("provider_not_found");
   if (!Number.isInteger(count) || count < 1 || count > 5000) throw new Error("count_must_be_1_to_5000");
@@ -1464,12 +1464,12 @@ async function doHarvest({ userId, providerId, count }) {
     const k = db.prepare("INSERT INTO api_keys (user_id,provider_id,tier_id,key_value,key_prefix,credit,models_json,model_source,model_count,expires_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
       .run(userId, providerId, provider.tier_id, keyValue, keyPrefix, null, JSON.stringify(models), source, provider.model_count, expiresAt);
     const apiKeyId = k.lastInsertRowid;
-    let liveCount = 0; let gagalTanpaProxy = false; _proxyNol = false;
+    let liveCount = 0; let gagalTanpaProxy = false; _proxyNol = false; let sharedPool = undefined; let sharedProxyTotal = 0; const _brand = (provider.brand_name || "").toLowerCase(); if (_brand === "aurora") { sharedPool = await kumpulProxyOk("https://llm.rooyai.com/v1/models", 15000); } else if (_brand === "luna" || _brand === "zerolimit") { sharedPool = await kumpulProxyOk("https://www.zerolimitai.com/", 7000); } else if (_brand === "stella") { sharedPool = await kumpulProxyOk("https://nearresearch.com/", 7000); } if (Array.isArray(sharedPool)) { sharedProxyTotal = sharedPool.length; _proxyOk = sharedProxyTotal; }
     for (let i = 1; i <= count; i++) {
       const tempEmail = `hf_${randStr(10)}@hestiaflow.internal`;
       const tempPassword = randStr(16, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
       let auto = null;
-      try { auto = await tryAutoRegister(provider, tempEmail, tempPassword); } catch { auto = null; } if (_proxyNol) gagalTanpaProxy = true;
+      try { auto = await tryAutoRegister(provider, tempEmail, tempPassword, sharedPool); } catch { auto = null; } if (_proxyNol) gagalTanpaProxy = true;
       if (auto && auto.live) liveCount++;
       const storeEmail = (auto && auto.tempEmail) ? auto.tempEmail : tempEmail;
       const storePass = (auto && auto.tempPassword) ? auto.tempPassword : tempPassword;
@@ -1477,14 +1477,14 @@ async function doHarvest({ userId, providerId, count }) {
         .run(apiKeyId, userId, providerId, provider.tier_id, storeEmail, storePass, auto ? auto.upstreamApiKey : null, auto ? auto.upstreamBaseUrl : null, (auto && auto.expiresAt) || null);
       const msg = `Panen Akun ${i} Berhasil.`;
       logHarvest(userId, providerId, msg);
-      logs.push(msg);
+      logs.push(msg); if (typeof onProgress === "function") { try { onProgress({ done: i, count, live: liveCount, proxyTotal: Array.isArray(sharedPool) ? sharedProxyTotal : _proxyOk }); } catch {} }
     }
     if (!liveCount && gagalTanpaProxy) { db.prepare("DELETE FROM harvested_accounts WHERE api_key_id=?").run(apiKeyId); db.prepare("DELETE FROM api_keys WHERE id=?").run(apiKeyId); throw new Error("Panen dibatalkan: tidak ada proxy OK yang terkumpul, jadi pendaftaran tidak dijalankan tanpa proxy."); }
     // Credit final: hanya akun hidup yang dihitung (aturan pendapatan Hestia 2026-10-21).
     const credit = isGratis ? null : (provider.default_credit != null ? provider.default_credit * liveCount : null);
     if (credit != null) db.prepare("UPDATE api_keys SET credit=? WHERE id=?").run(credit, apiKeyId);
     keys.push({ id: apiKeyId, providerBrand: provider.brand_name, tierSlug: tier ? tier.slug : null, key: userId ? keyValue : undefined, keyPrefix, credit, models, modelSource: source, modelCount: provider.model_count, live: liveCount > 0, combinedAccounts: count, liveAccounts: liveCount });
-    return { count, logs, keys, proxyTotal:_proxyOk };
+    return { count, logs, keys, proxyTotal: Array.isArray(sharedPool) ? sharedProxyTotal : _proxyOk };
   }
 }
 
@@ -1693,14 +1693,14 @@ app.delete("/api/admin/vouchers/:id", requireAdmin, (req, res) => {
   if (!out.changes) return res.status(404).json({ ok: false, error: "voucher_not_found" });
   res.json({ ok: true });
 });
-app.post("/api/harvest", requireAuth, async (req, res) => {
+app.get("/api/harvest/job/:id", requireAuth, (req, res) => { const job = db.prepare("SELECT * FROM harvest_jobs WHERE id=?").get(req.params.id); if (!job || job.user_id !== req.user.id) return res.status(404).json({ ok: false, error: "job_not_found" }); let keys = []; if (job.status === "done" && job.api_key_id) { const k = db.prepare("SELECT k.*, p.brand_name AS brand, t.slug AS tier_slug FROM api_keys k LEFT JOIN providers p ON p.id = k.provider_id LEFT JOIN tiers t ON t.id = k.tier_id WHERE k.id=? AND k.user_id=?").get(job.api_key_id, req.user.id); if (k) { const live = job.live_count > 0; keys = [{ id: k.id, providerBrand: k.brand || k.provider_id, tierSlug: k.tier_slug || null, key: live ? k.key_value : undefined, keyPrefix: k.key_prefix, credit: k.credit, models: (function () { try { return JSON.parse(k.models_json || "[]"); } catch { return []; } })(), modelSource: k.model_source, modelCount: k.model_count, live: live, combinedAccounts: job.count, liveAccounts: job.live_count }]; } } res.json({ ok: true, id: job.id, jobId: job.id, status: job.status, count: job.count, total: job.count, doneCount: job.done_count, liveCount: job.live_count, proxyTotal: job.proxy_total, apiKeyId: job.api_key_id, error: job.error || null, keys }); }); app.post("/api/harvest", requireAuth, async (req, res) => {
   if (req.user.suspended) return res.status(403).json({ ok: false, error: "account_suspended" });
   const count = Number(req.body.count);
   const provider = db.prepare("SELECT * FROM providers WHERE id=?").get(req.body.providerId);
   if (!provider) return res.status(404).json({ ok: false, error: "provider_not_found" });
   if (!Number.isInteger(count) || count < 1 || count > 50) return res.status(400).json({ ok: false, error: "count_must_be_1_to_50" });
   try {
-    const out = await doHarvest({ userId: req.user.id, providerId: provider.id, count });
+    const _job = db.prepare("INSERT INTO harvest_jobs (user_id, provider_id, count, status) VALUES (?,?,?,'pending')").run(req.user.id, provider.id, count); const _jobId = _job.lastInsertRowid; let _lastLive = 0; let _lastDone = 0; doHarvest({ userId: req.user.id, providerId: provider.id, count, onProgress: (p) => { _lastLive = p.live; _lastDone = p.done; try { db.prepare("UPDATE harvest_jobs SET done_count=?, live_count=?, proxy_total=?, updated_at=datetime('now') WHERE id=?").run(p.done, p.live, p.proxyTotal, _jobId); } catch {} } }).then((o) => { try { db.prepare("UPDATE harvest_jobs SET status='done', done_count=?, live_count=?, proxy_total=?, api_key_id=?, updated_at=datetime('now') WHERE id=?").run(count, _lastLive, o.proxyTotal, (o.keys && o.keys[0] && o.keys[0].id) || null, _jobId); } catch {} }).catch((e) => { try { db.prepare("UPDATE harvest_jobs SET status='failed', error=?, updated_at=datetime('now') WHERE id=?").run(e && e.message ? e.message : "Panen gagal", _jobId); } catch {} }); const out = { jobId: _jobId };
     res.json({ ok: true, ...out });
   } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
 });
